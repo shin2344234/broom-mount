@@ -1,4 +1,4 @@
-# Broomy 1.0.3
+# Broomy 1.0.4
 
 For Crimson Desert 2.03.02, exe 1.0.0.2976.
 
@@ -68,9 +68,13 @@ with a label and range for each.
 
 ## Uninstalling
 
-Delete the `Broomy` files from `bin64`. A save that has Broomy still
-loads, and Broomy leaves the radial. If you save without the plugin, that
-save loses Broomy, and putting the plugin back gives you a new one.
+Back up your saves, then delete the `Broomy` files from `bin64`. Saves
+with Broomy loaded without the plugin in testing, but one player's save
+stopped at the loading screen once the plugin was gone, and the cause is
+not known yet. Choose a horse in the saddle wedge before your last save
+with the plugin, so the save does not name Broomy's list as the chosen
+one. If you save without the plugin, that save loses Broomy, and putting
+the plugin back gives you a new one.
 
 ## Known limits
 

@@ -76,6 +76,20 @@ namespace
     constexpr char kPushOffNew[] = "1_pc/1_phm/00_riding/cd_phm_rd_broom_basic_00_00_nor_std_takeoff_00.paa";
     static_assert(sizeof kPushOffNew <= sizeof kPushOffOld, "the new name must fit the old one's room");
     constexpr size_t kSwapCount = sizeof kSwaps / sizeof kSwaps[0];
+
+    // Kliff's left hand IK. The node of 01B8F8D3 (the cut orca rider) fires
+    // frame event 777 at 0 s, type 0x65, which switches on the LimbIK's left
+    // hand (posemodifierdata.xml, limb "lefthand") aimed at the mount's
+    // B_IK_L_Hand. The broom skeleton has no such bone, so on a broom-skeleton
+    // mount his left fist goes to the seat at the front of his belt, whatever
+    // either layer plays. Found on the Speeder Bike, which rides on this
+    // chart (5 October). The node's instance of the event fires at 1000 s
+    // instead, past the end of every clip, so it never fires; the event
+    // itself is shared by 77 states and stays as it is. No shipped mount
+    // reaches 01B8F8D3.
+    constexpr uint32_t kIkAt = 0x216BF;   // the instance record: time, time_end, event index
+    constexpr uint32_t kIkWords[] = { 0x00000000, 0xBF800000, 777 };
+    constexpr uint32_t kNever = 0x447A0000;   // 1000.0f
     // Each swap's offset in the lower chart the game has: the shipped file,
     // or the one with Damiane's nodes (broomy.cpp).
     uint32_t g_at[kSwapCount] = {};
@@ -199,6 +213,15 @@ namespace
             LOG("[rider] Kliff's push-off plays as %s%s.", kPushOffNew,
                 damiane ? ", in the lower chart with Damiane's nodes" : "");
         }
+        const uint32_t ikAt = damiane ? Moved(kIkAt) : kIkAt;
+        if (known && ikAt + sizeof kIkWords <= size && memcmp(data + ikAt, kIkWords, sizeof kIkWords) == 0)
+        {
+            memcpy(const_cast<uint8_t*>(data) + ikAt, &kNever, 4);
+            LOG("[rider] 01B8F8D3's left hand IK event stays off%s.",
+                damiane ? ", in the lower chart with Damiane's nodes" : "");
+        }
+        else if (known)
+            LOG_ERR("[rider] 01B8F8D3's hand IK event is not where it should be, so Kliff's left hand may go to his belt.");
     }
 }
 
