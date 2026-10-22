@@ -8,6 +8,7 @@
 #include "game/analogspeed.h"
 #include "game/broomchart.h"
 #include "game/broomrows.h"
+#include "game/captivepatches.h"
 #include "game/damiane.h"
 #include "game/gamefile.h"
 #include "game/riderfix.h"
@@ -81,15 +82,20 @@ namespace
         return leaf[0] == 'b' && (leaf[1] == 'm' || leaf[1] == 'b') && leaf[2] >= '0' && leaf[2] <= '9';
     }
 
-    // Kliff's riding charts with Damiane's nodes (damiane.h), served only onto
-    // the file they were made for.
-    constexpr int kDamianeChartCount = sizeof bm::damiane::kCharts / sizeof bm::damiane::kCharts[0];
-    volatile LONG g_loggedDamiane[kDamianeChartCount] = {};
+    // Kliff's riding charts with Damiane's nodes (damiane.h), and a bounty's
+    // chart with his lying idle on Broomy (captivepatches.h), each served only
+    // onto the file it was made for.
+    const bm::damiane::Chart* const kSpliced[] = { &bm::damiane::kCharts[0], &bm::damiane::kCharts[1],
+                                                   &bm::captive::kChart };
+    static_assert(sizeof bm::damiane::kCharts / sizeof bm::damiane::kCharts[0] == 2, "a chart is missing from kSpliced");
+    constexpr int kSplicedCount = sizeof kSpliced / sizeof kSpliced[0];
+    constexpr int kCaptiveChart = kSplicedCount - 1;
+    volatile LONG g_loggedSpliced[kSplicedCount] = {};
 
-    int DamianeChartOf(const char* path)
+    int SplicedChartOf(const char* path)
     {
-        for (int i = 0; i < kDamianeChartCount; ++i)
-            if (_stricmp(path, bm::damiane::kCharts[i].path) == 0) return i;
+        for (int i = 0; i < kSplicedCount; ++i)
+            if (_stricmp(path, kSpliced[i]->path) == 0) return i;
         return -1;
     }
 
@@ -222,7 +228,7 @@ namespace
         const size_t n = strlen(path);
         if (TableOf(path, half) >= 0 || EndsWith(path, n, kPalocLeaf) || _stricmp(path, kPortraitRegistry) == 0 ||
             _stricmp(path, kDescriptionPath) == 0 || _stricmp(path, kAppearancePath) == 0 ||
-            _stricmp(path, kPoseModifierPath) == 0 || MapIconOf(path, n) >= 0 || DamianeChartOf(path) >= 0)
+            _stricmp(path, kPoseModifierPath) == 0 || MapIconOf(path, n) >= 0 || SplicedChartOf(path) >= 0)
             return true;
         return g_ownCharts && (ChartOf(path) >= 0 || AttackOf(path) >= 0 || _stricmp(path, kPackageDesc) == 0 ||
                                (g_chartsReady && AliasLeaf(path) && EndsWith(path, n, ".paa_metabin")));
@@ -233,15 +239,22 @@ namespace
         if (InterlockedExchange(&flag, 1) == 0) LOG(fmt, a, b);
     }
 
-    bool ServeDamiane(int d, bool found, const std::string& game, std::string& out)
+    bool ServeSpliced(int d, bool found, const std::string& game, std::string& out)
     {
-        const bm::damiane::Chart& c = bm::damiane::kCharts[d];
+        const bm::damiane::Chart& c = *kSpliced[d];
+        const bool captive = d == kCaptiveChart;
         if (!found || !bm::damiane::Build(c, game, out))
         {
-            LOG_ERR("[damiane] %s is not the file her nodes were made for, so she rides with Kliff's clips.", c.path);
+            if (captive)
+                LOG_ERR("[captive] %s is not the file it was made for, so a bounty rides on Kliff's shoulder.", c.path);
+            else
+                LOG_ERR("[damiane] %s is not the file her nodes were made for, so she rides with Kliff's clips.", c.path);
             return false;
         }
-        Once(g_loggedDamiane[d], "[damiane] %s has Damiane's broom nodes (%zu bytes).", c.path, out.size());
+        Once(g_loggedSpliced[d],
+             captive ? "[captive] %s has the bounty's lying idle on Broomy (%zu bytes)."
+                     : "[damiane] %s has Damiane's broom nodes (%zu bytes).",
+             c.path, out.size());
         return true;
     }
 
@@ -313,7 +326,7 @@ namespace
         int half = 0;
         const int t = TableOf(path, half);
         if (t >= 0) return ServeTable(t, half, found, game, out);
-        if (const int d = DamianeChartOf(path); d >= 0) return ServeDamiane(d, found, game, out);
+        if (const int d = SplicedChartOf(path); d >= 0) return ServeSpliced(d, found, game, out);
 
         std::string why;
         const size_t n = strlen(path);

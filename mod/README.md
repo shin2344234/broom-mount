@@ -1,4 +1,4 @@
-# Broomy 1.0.4
+# Broomy 1.0.5
 
 For Crimson Desert 2.03.02, exe 1.0.0.2976.
 
@@ -23,7 +23,8 @@ already have is left alone.
 
 Load a save. A few seconds later the plugin looks for Broomy among your
 mounts, and if it is missing, a wild horse the game has loaded joins your
-roster as Broomy. It happens once per save. A save that has Broomy already is
+roster as Broomy. With no wild horse nearby, another wild animal joins
+instead after a few more seconds, never a person. It happens once per save. A save that has Broomy already is
 left alone.
 
 Broomy is in the saddle wedge on the Character radial, after the horses and
@@ -44,10 +45,21 @@ The faster Broomy flies, the further the rider leans over the handle, from
 mostly upright at a slow push to down against it at full boost. In level
 flight the broom holds still, so the hands stay on the grip.
 
-If Broomy faints, it can be called again a second later.
+If Broomy faints, the next call brings a fresh one.
 
 On a controller the speed follows how far the left stick is pushed. The
 boost and the keyboard always move at full speed.
+
+## Bounties
+
+Broomy takes a bounty the way a horse does. With a bound bounty on your
+shoulder, walk up to Broomy and press Load. You don't need focus for it. He
+is laid across the broom behind the seat and stays there while you fly. To
+take him back, get off and press Unload beside the broom.
+
+You can also skip the load and climb on with him on your shoulder, as on a
+horse. He rides there through the flight and is still on your shoulder when
+you get off.
 
 ## Settings
 

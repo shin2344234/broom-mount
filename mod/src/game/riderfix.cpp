@@ -25,6 +25,24 @@ namespace
 
     struct Last { uintptr_t comp; uint8_t layer; uint32_t target; };
     constexpr int kSlots = 64;
+    // Test builds: a chart component is followed, every layer of it, from
+    // the first time one of its branches goes to a broom mount, an escort
+    // mount, a broom idle, the carry idles (a captive or a goat on the
+    // shoulder) or flight. Following the first 64 components the game
+    // checked would leave Kliff out once the world had loaded.
+    // Broomy's body chart (the Wyvern's m0004_dragon_upper) is followed from
+    // its fly idles, ground idles and landings, for arrivals in the air.
+    constexpr uint32_t kWatched[] = { 0x262C63D3, 0xA272684B, 0x33F65149, 0x4DC25870, 0x588C2001, 0xAD3E621B,
+                                      0xE75F3861, 0x0F03B042, 0xE066175D, 0xD54B3D54, 0x5478F08E, 0x23E7F150,
+                                      0xD28EB240, 0xCB1CB87C, 0x622E5BEC, 0x05CC1CFD, 0xE11DA708, 0x471C9D06,
+                                      0x887F58A8, 0x1DA64383, 0xDCBF95FE, 0x200C5591, 0x7259DAC6, 0x9211B380,
+                                      0x968C694E };
+    bool Watched(uint32_t target)
+    {
+        for (uint32_t w : kWatched)
+            if (w == target) return true;
+        return false;
+    }
     Last g_last[kSlots] = {};
     int g_used = 0;
     SRWLOCK g_lock = SRWLOCK_INIT;
@@ -149,8 +167,13 @@ namespace
         bool fresh = false;
         AcquireSRWLockExclusive(&g_lock);
         int i = 0;
-        while (i < g_used && !(g_last[i].comp == comp && g_last[i].layer == l)) ++i;
-        if (i == g_used && g_used < kSlots) g_last[g_used++] = { comp, l, 0 };
+        bool followed = Watched(target);
+        while (i < g_used && !(g_last[i].comp == comp && g_last[i].layer == l))
+        {
+            followed = followed || g_last[i].comp == comp;
+            ++i;
+        }
+        if (i == g_used && followed && g_used < kSlots) g_last[g_used++] = { comp, l, 0 };
         if (i < g_used && g_last[i].target != target)
         {
             g_last[i].target = target;
@@ -252,7 +275,8 @@ namespace bm::riderfix
             return false;
         }
         bm::gamefile::Observe(&Seen);
-        LOG(logStates ? "[rider] Kliff rides Broomy in his broom poses; each chart layer's next action is logged."
+        LOG(logStates ? "[rider] Kliff rides Broomy in his broom poses; each action taken by the charts of whoever "
+                        "mounts, rides or carries is logged as [state] (test build)."
                       : "[rider] Kliff rides Broomy in his broom poses.");
         return true;
     }

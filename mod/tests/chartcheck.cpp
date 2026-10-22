@@ -19,6 +19,7 @@
 #include <string>
 
 #include "game/broomchart.h"
+#include "game/captivepatches.h"
 #include "game/damiane.h"
 
 namespace
@@ -165,9 +166,13 @@ int main(int argc, char** argv)
         printf("package list: %s (%zu bytes from %zu)\n", report.c_str(), newDesc.size(), desc.size());
         if (!Save(out + "characteractionpackagedescription.paacdesc", newDesc)) ++failed;
     }
-    // Damiane's nodes in Kliff's riding charts.
-    for (const bm::damiane::Chart& c : bm::damiane::kCharts)
+    // Damiane's nodes in Kliff's riding charts, and the bounty's lying idle on
+    // Broomy in his own chart (captivepatches.h).
+    const bm::damiane::Chart* spliced[] = { &bm::damiane::kCharts[0], &bm::damiane::kCharts[1], &bm::captive::kChart };
+    static_assert(sizeof bm::damiane::kCharts / sizeof bm::damiane::kCharts[0] == 2, "a chart is missing from spliced");
+    for (const bm::damiane::Chart* each : spliced)
     {
+        const bm::damiane::Chart& c = *each;
         std::string shipped, built;
         if (!Load(in + Leaf(c.path), shipped))
         {
@@ -177,7 +182,7 @@ int main(int argc, char** argv)
         }
         if (!bm::damiane::Build(c, shipped, built))
         {
-            printf("%s: Damiane's nodes FAILED (%zu bytes in, %zu out)\n", Leaf(c.path), shipped.size(), built.size());
+            printf("%s: its splices FAILED (%zu bytes in, %zu out)\n", Leaf(c.path), shipped.size(), built.size());
             ++failed;
             continue;
         }
@@ -192,7 +197,7 @@ int main(int argc, char** argv)
             const uint32_t to = bm::damiane::Moved(c, o);
             if (to >= built.size() || built[to] != shipped[o]) ++wrong;
         }
-        printf("  %-28s %zu bytes with Damiane's nodes, %zu splices; %zu of %zu kept bytes misplaced by Moved\n",
+        printf("  %-28s %zu bytes spliced, %zu splices; %zu of %zu kept bytes misplaced by Moved\n",
                Leaf(c.path), built.size(), c.count, wrong, kept);
         if (wrong) ++failed;
         if (!Save(out + "damiane_" + Leaf(c.path), built)) ++failed;

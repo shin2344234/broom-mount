@@ -193,6 +193,28 @@ namespace bm::sig
     inline constexpr unsigned kOff_Sender_Block = 0x68;
     inline constexpr unsigned kOff_Block_Clan   = 0x110;
 
+    // The client's check before a mount call (in +0x7FCFA6): it looks the
+    // mount's actor up by the id its roster entry names (the E8 at +0x22 to
+    // +0x8AE1A0, lookup(manager, out, id), out laid out as the hire's), then
+    // walks [[[[actor+0x68]+0x118]+8]+0x68]+0x20 to a status object and
+    // refuses the call with eErrNoCanCallFailedByDead while its +0x273 or
+    // +0x272 is set, or with eErrNoCanCallFailedByGroggy while +0x320 is
+    // above 0 and the test at +0x1794ED0 (the E8 at +0xFA, after `mov
+    // rcx,rbx`) holds. The server checks the same bytes (+0x2BA7B4B). The
+    // E8 at +0x7D (after `lea rcx,[rbp-50h]`) is +0x1434880, which lets a
+    // lookup result go: it releases the actor only while out+0x10 is set.
+    // The pattern starts at +0x7FD01D. From Speeder Bike 1.0.3.
+    inline constexpr const char* kSig_CallCheck =
+        "45 8B 76 50 48 8B 4D 80 48 8B 01 B2 01 FF 50 20 45 8B C6 48 8D 55 B0 48 8B 0D ?? ?? ?? ?? 48 8B 49 28 "
+        "E8 ?? ?? ?? ?? 48 8B D0";
+    inline constexpr unsigned kOff_CallCheck_Lookup = 0x22;
+    inline constexpr unsigned kOff_CallCheck_ReleaseSig = 0x79;
+    inline constexpr const char* kSig_CallCheckRelease = "48 8D 4D B0 E8";
+    inline constexpr unsigned kOff_MountComp_Actor = 0x08;
+    inline constexpr unsigned kOff_Status_DeadA = 0x272;
+    inline constexpr unsigned kOff_Status_DeadB = 0x273;
+    inline constexpr unsigned kOff_Status_Groggy = 0x320;
+
     inline constexpr uint32_t kGrantDelayMs = 3000;    // after loading completes
     inline constexpr uint32_t kGrantRetryMs = 5000;    // after a hire that failed or never came
     inline constexpr int      kGrantTries   = 5;

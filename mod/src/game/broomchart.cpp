@@ -2,6 +2,8 @@
 #include "game/boostpatches.h"
 #include "game/crossfadepatches.h"
 #include "game/rightmountpatches.h"
+#include "game/escortmountpatches.h"
+#include "game/groundpatches.h"
 #include "game/takeoffpatches.h"
 #include "game/effectpatches.h"
 #include "game/flourishpatches.h"
@@ -383,6 +385,25 @@ namespace bm::broomchart
             Poke<uint32_t>(c, p.at, p.broomy);
             ++right;
         }
+        // Broomy takes a rider mounting with a captive (escortmountpatches.h).
+        size_t escort = 0;
+        for (const HoverPatch& p : kEscortMountPatches)
+        {
+            std::string& c = out[p.chart];
+            if (p.at + 4 > c.size() || Peek<uint32_t>(c, p.at) != p.wyvern) continue;
+            Poke<uint32_t>(c, p.at, p.broomy);
+            ++escort;
+        }
+        // A Broomy that arrives above the ground starts in the ground idle,
+        // not the Wyvern's fly idle (groundpatches.h).
+        size_t groundStart = 0;
+        for (const HoverPatch& p : kGroundPatches)
+        {
+            std::string& c = out[p.chart];
+            if (p.at + 4 > c.size() || Peek<uint32_t>(c, p.at) != p.wyvern) continue;
+            Poke<uint32_t>(c, p.at, p.broomy);
+            ++groundStart;
+        }
         // The takeoff is not airborne, so the aim IK waits for flight
         // (takeoffpatches.h).
         size_t takeoff = 0;
@@ -393,10 +414,10 @@ namespace bm::broomchart
             Poke<uint32_t>(c, p.at, p.broomy);
             ++takeoff;
         }
-        char line[900];
+        char line[1100];
         snprintf(line, sizeof line,
                  "%zu animation paths and %zu blend paths are the broom's, padded with zeros; %zu riding action%s keyed "
-                 "to Broom_Ride; %zu of %zu ground branches go to flight%s; %zu of %zu Wyvern sound events silenced; %zu of %zu boost edits; %zu of %zu speeds set (ground %d%%, flight %d%%, boost %d%%, climb %d%%); %zu of %zu roll and glide branches cut; %zu of %zu shakes, rumbles, effects and voices removed; %zu of %zu RideOn flight nodes on the blend; %zu of %zu mount edits; %zu of %zu aim IK edits; %zu of %zu crossfades eased; %zu of %zu right-side mount edits; %zu of %zu takeoff edits",
+                 "to Broom_Ride; %zu of %zu ground branches go to flight%s; %zu of %zu Wyvern sound events silenced; %zu of %zu boost edits; %zu of %zu speeds set (ground %d%%, flight %d%%, boost %d%%, climb %d%%); %zu of %zu roll and glide branches cut; %zu of %zu shakes, rumbles, effects and voices removed; %zu of %zu RideOn flight nodes on the blend; %zu of %zu mount edits; %zu of %zu aim IK edits; %zu of %zu crossfades eased; %zu of %zu right-side mount edits; %zu of %zu escort mount edits; %zu of %zu ground start edits; %zu of %zu takeoff edits",
                  anims.size(), blends.size(), keyed, keyed == 1 ? "" : "s", hover, hover + skipped,
                  skipped ? " (the rest did not hold the Wyvern's value)" : "", quiet,
                  sizeof kQuietPatches / sizeof kQuietPatches[0], boost, sizeof kBoostPatches / sizeof kBoostPatches[0], speed,
@@ -407,7 +428,9 @@ namespace bm::broomchart
                  sizeof kRideOnBlendPatches / sizeof kRideOnBlendPatches[0], mount,
                  sizeof kMountPatches / sizeof kMountPatches[0], ik, sizeof kIkPatches / sizeof kIkPatches[0],
                  crossfade, sizeof kCrossfadePatches / sizeof kCrossfadePatches[0], right,
-                 sizeof kRightMountPatches / sizeof kRightMountPatches[0], takeoff,
+                 sizeof kRightMountPatches / sizeof kRightMountPatches[0], escort,
+                 sizeof kEscortMountPatches / sizeof kEscortMountPatches[0], groundStart,
+                 sizeof kGroundPatches / sizeof kGroundPatches[0], takeoff,
                  sizeof kTakeoffPatches / sizeof kTakeoffPatches[0]);
         report = line;
         return true;

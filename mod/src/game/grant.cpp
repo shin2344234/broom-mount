@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 #include "core/log.h"
 #include "game/broomy.h"
@@ -25,6 +26,46 @@ namespace
     FnLookup g_lookupOriginal = nullptr;
 
     constexpr int kHorseList = 78;   // Vehicle_Horse's key, as characterinfo's file holds it
+
+    // The hire takes any unowned actor of kind 4 to 6; only the plugin asked
+    // for a horse. A save loaded where no wild horse grazes waited for one
+    // (28 September, and Seth on 19 October: "it should be added as soon as
+    // i start"), so after kHorseGraceMs the grant takes another wild animal:
+    // a list of mounts or animals, never one of people (Mercenary_*) and
+    // never an actor with no list, which is where NPCs and monsters sit.
+    constexpr DWORD kHorseGraceMs = 4000;
+    constexpr int   kNoRank = 9;
+    int Rank(int list)
+    {
+        switch (list)
+        {
+        case kHorseList: return 0;
+        case 65:   // Vehicle: wolves, bulls, wild mounts
+        case 81:   // Vehicle_Special: bears, wolves
+        case 68:   // Domestic: cows, goats
+            return 1;
+        case 84:   // Insect
+        case 69:   // Fish
+            return 2;
+        default: return -1;
+        }
+    }
+    const char* ListName(int list)
+    {
+        switch (list)
+        {
+        case kHorseList: return "wild horse";
+        case 65: return "wild mount";
+        case 81: return "wild bear or wolf";
+        case 68: return "farm animal";
+        case 84: return "insect";
+        case 69: return "fish";
+        default: return "actor";
+        }
+    }
+    // Unowned actors of kind 4 to 6 the lookup saw while the grant waited,
+    // counted by mercenary list (index 255: no list), for the waiting line.
+    volatile LONG g_seenByList[256] = {};
 
     // Loading: each LoadingComplete bumps the sequence, and the roster is
     // checked once per sequence, kGrantDelayMs after it.
@@ -61,7 +102,11 @@ namespace
     volatile LONG g_armed = 0;
     volatile LONG g_candidate = 0;      // the last unowned wild horse seen
     volatile LONG g_candidateRow = 0;
-    volatile LONG g_target = 0;         // the horse the server was asked to hire
+    volatile LONG g_candidateRank = kNoRank;
+    volatile LONG g_armedAt = 0;        // when the check that found no Broomy armed the grant
+    constexpr DWORD kSameLoadMs = 30000;
+    DWORD         g_lastNoBroomyAt = 0; // the last check that found no Broomy, 0 after one that found it
+    volatile LONG g_target = 0;         // the actor the server was asked to hire
     volatile LONG g_sentAt = 0;
     volatile LONG g_tries = 0;
     volatile LONG g_waitLogged = 0;
@@ -79,6 +124,15 @@ namespace
     volatile LONG   g_calledAt = 0;          // 0 when no call is being watched
     volatile LONG   g_heightLogged = 0;      // checkpoints logged so far
     volatile LONG64 g_broomyActor = 0, g_playerActor = 0;
+
+    // When the client's call check last found Broomy out and up (0 for none);
+    // the call request it sends follows within a few milliseconds and is sent
+    // twice (SendDetour).
+    volatile LONG   g_outAtCall = 0;
+    constexpr DWORD kOutAtCallMs = 500;
+    unsigned char   g_callCopy[256];
+
+    bool g_give = true;   // GiveBroomy; without it the roster is read, never added to
 
     // The actor's position and the transform field it came from (0 when none
     // reads): the first world copy that holds one, else, or with local set,
@@ -226,8 +280,9 @@ namespace
     }
 
     // Is the actor this lookup found one the hire takes (kind 4 to 6, no
-    // owner), and a horse? Runs on the game's thread inside its own lookup,
-    // so at most a few hundred a second are looked at.
+    // owner), and a wild animal? A horse beats any other; among the rest the
+    // better rank wins. Runs on the game's thread inside its own lookup, so
+    // at most a few hundred a second are looked at.
     void Consider(uintptr_t out, uint32_t id)
     {
         if (!id || static_cast<LONG>(id) == g_candidate || Rejected(static_cast<LONG>(id))) return;
@@ -250,8 +305,12 @@ namespace
             !bm::mem::Read32(owner + kOff_Owner_Id, &ownerId) || ownerId != 0 ||
             !bm::mem::ReadPtr(block + kOff_Block_Status, &status) || !bm::mem::Read16(status + kOff_Status_CharRow, &row))
             return;
-        if (bm::broomy::MercenaryKey(row) != kHorseList) return;
+        const int list = bm::broomy::MercenaryKey(row);
+        if (Pending()) InterlockedIncrement(&g_seenByList[list >= 0 && list < 255 ? list : 255]);
+        const int rank = Rank(list);
+        if (rank < 0 || (g_candidate && rank > g_candidateRank)) return;
         InterlockedExchange(&g_candidateRow, row);
+        InterlockedExchange(&g_candidateRank, rank);
         InterlockedExchange(&g_candidate, static_cast<LONG>(id));
     }
 
@@ -292,15 +351,19 @@ namespace
     {
         const LONG n = InterlockedIncrement(&g_tries);
         if (n >= 1 && n <= kGrantTries) InterlockedExchange(&g_rejected[n - 1], target);
-        if (g_candidate == target) InterlockedExchange(&g_candidate, 0);
+        if (g_candidate == target)
+        {
+            InterlockedExchange(&g_candidate, 0);
+            InterlockedExchange(&g_candidateRank, kNoRank);
+        }
         InterlockedExchange(&g_waitLogged, 0);
         InterlockedExchange(&g_target, 0);
         if (n >= kGrantTries)
-            LOG_ERR("[grant] horse %08X %s. That was try %ld of %d, so the grant stops until the next load.",
+            LOG_ERR("[grant] %08X %s. That was try %ld of %d, so the grant stops until the next load.",
                     static_cast<uint32_t>(target), why, n, kGrantTries);
         else
-            LOG("[grant] horse %08X %s. Try %ld of %d; the next goes to another wild horse.",
-                static_cast<uint32_t>(target), why, n, kGrantTries);
+            LOG("[grant] %08X %s. Try %ld of %d; the next goes to another wild animal.", static_cast<uint32_t>(target),
+                why, n, kGrantTries);
     }
 
     // The grant hires on the server's own thread, from the handler of the
@@ -335,18 +398,29 @@ namespace
     {
         if (!Pending() || g_target || bm::broomy::Row() < 0) return;
         const LONG target = g_candidate;
+        const DWORD armedFor = GetTickCount() - static_cast<DWORD>(g_armedAt);
+        if (target && g_candidateRank > 0 && armedFor < kHorseGraceMs) return;   // a horse may still turn up
         if (!target)
         {
-            if (InterlockedCompareExchange(&g_waitLogged, 1, 0) == 0)
-                LOG("[grant] waiting for the server to have an unowned wild horse loaded. Ride somewhere horses graze "
-                    "if this stays the last grant line.");
+            if (armedFor >= kHorseGraceMs && InterlockedCompareExchange(&g_waitLogged, 1, 0) == 0)
+            {
+                char seen[256] = {};
+                size_t used = 0;
+                for (int list = 0; list < 256 && used + 16 < sizeof seen; ++list)
+                    if (const LONG n = g_seenByList[list])
+                        used += snprintf(seen + used, sizeof seen - used, "%s%s %ld", used ? ", " : "",
+                                         list == 255 ? "no list" : std::to_string(list).c_str(), n);
+                LOG("[grant] no unowned wild animal is loaded yet, so Broomy waits for the first one the server loads. "
+                    "Unowned actors seen by mercenary list: %s.", used ? seen : "none");
+            }
             return;
         }
         const uintptr_t clan = SenderClan(message);
         if (!clan || InterlockedCompareExchange(&g_target, target, 0) != 0) return;
         InterlockedExchange(&g_sentAt, static_cast<LONG>(GetTickCount()));
-        LOG("[grant] hiring wild horse %08X (characterinfo row %ld) as Broomy (row %d).", static_cast<uint32_t>(target),
-            g_candidateRow, bm::broomy::Row());
+        const int list = bm::broomy::MercenaryKey(static_cast<uint32_t>(g_candidateRow));
+        LOG("[grant] hiring %s %08X (characterinfo row %ld, mercenary list %d) as Broomy (row %d).", ListName(list),
+            static_cast<uint32_t>(target), g_candidateRow, list, bm::broomy::Row());
         uint32_t error = 0, id = static_cast<uint32_t>(target);
         HireDetour(clan, &error, &id, 0, 0);
         if (g_target == target) Miss(target, "was not hired, for no reason the server gave");
@@ -381,6 +455,25 @@ namespace
                 InterlockedExchange64(&g_broomyActor, 0);
                 InterlockedExchange(&g_heightLogged, 0);
                 InterlockedExchange(&g_calledAt, static_cast<LONG>(GetTickCount() | 1));
+            }
+            // A Broomy already out: the game's first call tells it to come by
+            // itself, which a broom cannot, and only a later call brings it
+            // with the arrival chain the Ride prompt waits for (1.0.5-test15,
+            // KNOWLEDGE.md). So the same request goes again at once, while
+            // Kliff still plays the call that the server checks it against.
+            // Signed: the stamp is ORed with 1, so it can lead the clock by 1 ms,
+            // and unsigned that read as 49 days (1.0.5-test16, 16:10:51).
+            const LONG out = g_outAtCall;
+            const LONG age = static_cast<LONG>(GetTickCount() - static_cast<DWORD>(out));
+            const size_t bytes = static_cast<size_t>(length & 0xFFFF);
+            if (id == 0x0876 && out && age < static_cast<LONG>(kOutAtCallMs) &&
+                InterlockedCompareExchange(&g_outAtCall, 0, out) == out && bytes <= sizeof g_callCopy &&
+                bm::mem::ReadBytes(message, g_callCopy, bytes))
+            {
+                const uint64_t r = g_sendOriginal(ctx, buffer, kind, message, length, a6, a7);
+                LOG("[call] Broomy is out, so the call goes to the server twice (%zu bytes).", bytes);
+                g_sendOriginal(ctx, buffer, kind, reinterpret_cast<uintptr_t>(g_callCopy), length, a6, a7);
+                return r;
             }
         }
         if (id == kReq_LoadingComplete)
@@ -425,7 +518,7 @@ namespace
         if (swapped)
             LOG_OK("[grant] Broomy has joined your mounts. Save before you quit.");
         else
-            LOG_ERR("[grant] horse %08X joined your mounts as itself: the hire never looked it up the way it used to. "
+            LOG_ERR("[grant] %08X joined your mounts as itself: the hire never looked it up the way it used to. "
                     "No second try this load.", id);
         return r;
     }
@@ -518,12 +611,102 @@ namespace
         }
         return false;
     }
+
+    // A fainted Broomy (Seth, 21 October: "the broom fainted for some
+    // unknown reason. thats not supposed to persist anymore"). Speeder Bike
+    // fixed this in 1.0.3 and Broomy never took it: with the row's 1 second
+    // cool time the call stayed refused until a reload, because the fainted
+    // actor is not loaded again and the roster entry then names no actor.
+    // This does the same at the call: when the client's check finds Broomy
+    // down, the lookup result is let go as the check itself would, so the
+    // check takes its path for a mount that is not out, and the server roster
+    // entry's actor id is cleared (StoreBroomy), so the server spawns a fresh
+    // Broomy for the call. With Speeder Bike installed both hook this call;
+    // each one's detour passes any other row through. Only the dead bytes
+    // count, which the game itself reads unlocked. Its groggy test
+    // (+0x1794ED0) runs under a reader lock on [[status+8]+8] that a detour
+    // here does not hold, and +0x320 reads 2 at every call of a Broomy that
+    // is up, so calling it would race on every call; a wrong "groggy" would
+    // clear the roster entry of a Broomy still out (review, 21 October). A
+    // groggy Broomy waits out its stun as the game says.
+    typedef uint64_t (*FnCallLookup)(uintptr_t manager, uintptr_t out, uintptr_t id);
+    typedef void (*FnReleaseResult)(uintptr_t out);
+    FnCallLookup    g_callLookupOriginal = nullptr;
+    FnReleaseResult g_releaseResult = nullptr;
+
+    uint64_t CallLookupDetour(uintptr_t manager, uintptr_t out, uintptr_t id)
+    {
+        const uint64_t r = g_callLookupOriginal(manager, out, id);
+        const uintptr_t res = r ? static_cast<uintptr_t>(r) : out;
+        const int row = bm::broomy::Row();
+        uint8_t found = 0, deadA = 0, deadB = 0;
+        uintptr_t actor = 0, block = 0, comp = 0, self = 0, selfBlock = 0, status = 0;
+        uint16_t charRow = 0;
+        uint32_t groggy = 0;
+        if (row < 0 || !bm::mem::Read8(res + kOff_Lookup_Found, &found) || !found ||
+            !bm::mem::ReadPtr(res + kOff_Lookup_Actor, &actor) || !bm::mem::ReadPtr(actor + kOff_Actor_Block, &block) ||
+            !bm::mem::ReadPtr(block + kOff_Block_Owner, &comp) || !bm::mem::ReadPtr(comp + kOff_MountComp_Actor, &self) ||
+            !bm::mem::ReadPtr(self + kOff_Actor_Block, &selfBlock) ||
+            !bm::mem::ReadPtr(selfBlock + kOff_Block_Status, &status) ||
+            !bm::mem::Read16(status + kOff_Status_CharRow, &charRow) || charRow != row ||
+            !bm::mem::Read8(status + kOff_Status_DeadA, &deadA) || !bm::mem::Read8(status + kOff_Status_DeadB, &deadB) ||
+            !bm::mem::Read32(status + kOff_Status_Groggy, &groggy))
+            return r;
+        if (!deadA && !deadB)
+        {
+            LOG("[faint] Broomy (actor %08X) is up at the call (+0x272 %u, +0x273 %u, +0x320 %d).",
+                static_cast<uint32_t>(id), deadA, deadB, static_cast<int32_t>(groggy));
+            InterlockedExchange(&g_outAtCall, static_cast<LONG>(GetTickCount() | 1));
+            return r;
+        }
+        const bool stored = g_seenCount && StoreBroomy(g_seen[0].clan, static_cast<uint32_t>(id));
+        if (!stored)
+        {
+            LOG_ERR("[faint] Broomy (actor %08X) is down at the call (+0x272 %u, +0x273 %u, +0x320 %d), but its "
+                    "roster entry was not found to clear, so the game refuses the call.",
+                    static_cast<uint32_t>(id), deadA, deadB, static_cast<int32_t>(groggy));
+            return r;
+        }
+        g_releaseResult(res);
+        // The result is the check's own stack object.
+        *reinterpret_cast<uint8_t*>(res + kOff_Lookup_Found) = 0;
+        *reinterpret_cast<uintptr_t*>(res + kOff_Lookup_Actor) = 0;
+        LOG("[faint] Broomy (actor %08X) is down at the call (+0x272 %u, +0x273 %u, +0x320 %d); its roster entry "
+            "is cleared, so the call brings a fresh one.",
+            static_cast<uint32_t>(id), deadA, deadB, static_cast<int32_t>(groggy));
+        return r;
+    }
+
+    void InstallCallCheck()
+    {
+        size_t hits = 0;
+        const uintptr_t at = bm::mem::FindUnique(kSig_CallCheck, &hits);
+        const uintptr_t release = at && bm::mem::MatchAt(at + kOff_CallCheck_ReleaseSig, kSig_CallCheckRelease)
+                                      ? CallTarget(at + kOff_CallCheck_ReleaseSig + 4) : 0;
+        if (!at || !release)
+        {
+            LOG_ERR("[faint] the mount call's check was found %zu times (release %s), so a fainted Broomy waits as the "
+                    "game says.", hits, release ? "found" : "missing");
+            return;
+        }
+        g_releaseResult = reinterpret_cast<FnReleaseResult>(release);
+        char why[96] = {};
+        if (!bm::farhook::InstallOverJump("mount call check lookup", at + kOff_CallCheck_Lookup,
+                                          reinterpret_cast<void*>(&CallLookupDetour),
+                                          reinterpret_cast<void**>(&g_callLookupOriginal), why, sizeof why))
+        {
+            LOG_ERR("[faint] could not hook the mount call's check (%s), so a fainted Broomy waits as the game says.", why);
+            return;
+        }
+        LOG("[faint] a call while Broomy is down brings a fresh one.");
+    }
 }
 
 namespace bm::grant
 {
-    bool Install()
+    bool Install(bool give)
     {
+        g_give = give;
         const uintptr_t send = mem::FindUnique(kSig_SendRequest);
         const uintptr_t hire = mem::FindUnique(kSig_ServerHire);
         const uintptr_t move = mem::FindUnique(kSig_ServerMoveHandler);
@@ -551,6 +734,7 @@ namespace bm::grant
             LOG_ERR("[grant] could not hook (%s%s%s%s), so Broomy is not given this session.", why, why2, why3, why4);
             return false;
         }
+        InstallCallCheck();
         LOG("[grant] ready: %u seconds after a save loads, the roster is checked for Broomy.",
             static_cast<unsigned>(kGrantDelayMs / 1000));
         return true;
@@ -585,6 +769,7 @@ namespace bm::grant
             {
                 InterlockedExchange(&g_armed, 0);
                 InterlockedExchange(&g_candidate, 0);
+                InterlockedExchange(&g_candidateRank, kNoRank);
                 LOG("[grant] Broomy is in the roster after all (%d roster%s), so nothing is given.", rosters,
                     rosters == 1 ? "" : "s");
             }
@@ -629,19 +814,47 @@ namespace bm::grant
         g_retryAt = 0;
         if (has)
         {
+            g_lastNoBroomyAt = 0;
             LOG("[grant] Broomy (row %d) is already in this save's roster (%d roster%s looked through in %lu ms), so "
                 "nothing is given.", row, rosters, rosters == 1 ? "" : "s", took);
             return;
         }
-        // The last wild horse seen while the save loaded stays the
+        if (!g_give)
+        {
+            LOG("[grant] this save has no Broomy (%d roster%s looked through in %lu ms), and GiveBroomy=0, so none is "
+                "given.", rosters, rosters == 1 ? "" : "s", took);
+            return;
+        }
+        // A load sends LoadingComplete up to four times about 5 s apart, and
+        // each one disarms the grant until the next check (19 October: four
+        // checks from 13:47:49 to 13:48:04, the hire at 13:48:09). A check
+        // that follows another within kSameLoadMs carries on where that one
+        // was, so the wait for a horse runs once per load. Once the tries are
+        // used up a check starts over, since another save loaded within
+        // kSameLoadMs would otherwise never be given Broomy (Miss() tells the
+        // player the grant waits for the next load).
+        const DWORD nowArm = GetTickCount();
+        if (g_lastNoBroomyAt && nowArm - g_lastNoBroomyAt < kSameLoadMs && g_tries < kGrantTries)
+        {
+            g_lastNoBroomyAt = nowArm;
+            g_armedCheckAt = nowArm;
+            InterlockedExchange(&g_target, 0);
+            InterlockedExchange(&g_armed, 1);
+            return;
+        }
+        g_lastNoBroomyAt = nowArm;
+        // The last wild animal seen while the save loaded stays the
         // candidate: a hire of one that has gone fails and the next is tried.
         InterlockedExchange(&g_tries, 0);
         InterlockedExchange(&g_target, 0);
         InterlockedExchange(&g_waitLogged, 0);
         for (volatile LONG& r : g_rejected) InterlockedExchange(&r, 0);
+        for (volatile LONG& n : g_seenByList) InterlockedExchange(&n, 0);
         g_armedCheckAt = GetTickCount();
+        InterlockedExchange(&g_armedAt, static_cast<LONG>(g_armedCheckAt));
         InterlockedExchange(&g_armed, 1);
-        LOG("[grant] this save has no Broomy (%d roster%s looked through in %lu ms). The next unowned wild horse the "
-            "server loads is hired as Broomy.", rosters, rosters == 1 ? "" : "s", took);
+        LOG("[grant] this save has no Broomy (%d roster%s looked through in %lu ms). A wild horse the server has "
+            "loaded is hired as Broomy, or after %u seconds any unowned wild animal.", rosters, rosters == 1 ? "" : "s",
+            took, static_cast<unsigned>(kHorseGraceMs / 1000));
     }
 }

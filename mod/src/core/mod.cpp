@@ -12,8 +12,10 @@
 #include "game/broomclips.h"
 #include "game/broomchart.h"
 #include "game/analogspeed.h"
+#include "game/broomrows.h"
 #include "game/broomy.h"
 #include "game/callgate.h"
+#include "game/captivepatches.h"
 #include "game/damianeclips.h"
 #include "game/equipfix.h"
 #include "game/farhook.h"
@@ -99,7 +101,9 @@ namespace
     const std::string g_herBlend = Renamed(Renamed(g_riderBlend, kHisClips, kHerClips), kHisSkeleton, kHerSkeleton);
 
     // The clips Broomy carries: the broom's level takeoff and hover idle,
-    // Kliff's push-off and leans (broomclips.h), and Damiane's (damianeclips.h).
+    // Kliff's push-off and leans, every broom clip with its cargo seat behind
+    // Kliff (broomclips.h), Damiane's (damianeclips.h), and a bounty lying
+    // across the broom (captivepatches.h).
     // A clip no pack holds has a stand-in, a shipped file find and exists see
     // in its place; the hover replaces the idle.
     struct Carried
@@ -112,6 +116,8 @@ namespace
         for (const bm::broomchart::BroomClip& c : bm::broomchart::kBroomClips)
             v.push_back({ &c, std::string(reinterpret_cast<const char*>(c.data), c.size) });
         for (const bm::broomchart::BroomClip& c : bm::damiane::kClips)
+            v.push_back({ &c, std::string(reinterpret_cast<const char*>(c.data), c.size) });
+        for (const bm::broomchart::BroomClip& c : bm::captive::kClips)
             v.push_back({ &c, std::string(reinterpret_cast<const char*>(c.data), c.size) });
         return v;
     }();
@@ -163,7 +169,7 @@ namespace
         if (!g_serving)
             LOG_ERR("[mod] Broomy's files are not being served (see the [files] line above), so Broomy does not exist "
                     "this session.");
-        const bool granting = g_serving && give && bm::grant::Install();
+        const bool granting = g_serving && bm::grant::Install(give);
         if (g_serving) bm::callgate::Install();
         if (g_serving) bm::equipfix::Install();
         if (g_serving) bm::leanblend::Install();

@@ -27,6 +27,7 @@ namespace bm::broomrows
         constexpr uint32_t kIbexKey = 29448;
         constexpr uint16_t kIbexVehicle = 16993;       // AlpineIbex
         constexpr uint64_t kFaintSeconds = 1;          // the ibex's is 300
+        constexpr uint32_t kVanishMs = 1000;           // the ibex's (and every riding row's) is 900000
         constexpr uint8_t  kHorseMerc = 78;            // Vehicle_Horse
         constexpr uint8_t  kSpecialMerc = 81;          // Vehicle_Special, the ibex row's list
         constexpr uint8_t  kVehicleGroup = 65;         // mercenarygroupinfo Vehicle
@@ -38,6 +39,85 @@ namespace bm::broomrows
         // Broom_RideAir, so a mount in the air is still the Wyvern's.
         constexpr uint32_t kWyvernRide[2] = { 1000068, 1000264 };   // Broom_Ride, Wyvern_RideAir
         constexpr uint32_t kIbexRide[2] = { 1000098, 1000085 };
+        // Broom_Ride_Catch, Broomy's own row for mounting with a bound captive
+        // on Kliff's shoulder. Horse_Ride_Catch (397) on Broomy's list showed
+        // no prompt and kept the Character radial from opening (Seth, 19
+        // October), so this is Broom_Ride with what makes a catch ride: the
+        // condition expression and the catch tag 29646F2B, both as
+        // AlpineIbex_Ride_Catch differs from AlpineIbex_Ride (their seats are
+        // byte for byte the same).
+        constexpr uint32_t kHorseCatchRide = 397;
+        constexpr uint32_t kBroomCatchRide = 1900068;
+        constexpr const char* kBroomCatchName = "Broom_Ride_Catch";
+        // The escort mount actions Broom_Ride_Catch's pivots end with, right and
+        // left (damianepatches.h for Kliff's, escortmountpatches.h for Broomy's).
+        constexpr uint32_t kEscortRight = 0x33F65149;
+        constexpr uint32_t kEscortLeft = 0x4DC25870;
+        // Broom_Carry_Dead, loading a captive or a body onto Broomy while
+        // Kliff stays on foot (Seth, 21 October: "no option to load him onto
+        // the broom and stay off the broom"). A horse offers Horse_Carry_Dead
+        // (301) from its own row: Kliff's on-foot dispatchers 2820B750 (left)
+        // and FDF23C06 (right) pick the move by what he carries, and for a
+        // bound man it sends him to the horse's lying idle, held by the horse.
+        // It is a focus interaction (CarryRow says why), and Broomy's copy is
+        // the horse's row renamed.
+        constexpr uint32_t kHorseCarry = 301;
+        constexpr uint32_t kBroomCarry = 1900069;
+        constexpr const char* kBroomCarryName = "Broom_Carry_Dead";
+        constexpr uint32_t kLoadRight = 0xFDF23C06;
+        constexpr uint32_t kLoadLeft = 0x2820B750;
+        bool g_offerLoad = true;
+        // A load goes onto a cargo seat. Of the 34 vehicleinfo rows only the
+        // horse's names one: its _cargoSeatIndexList is [1], and seat 1 is
+        // B_Rider_02, ahead of the saddle. The ibex row Broomy is copied from
+        // has one seat and no cargo seat, and test17's Broom_Carry_Dead was
+        // never offered. The broom's skeleton has B_Rider_02 too, on
+        // B_Rider_01. After the name: the seat count (u8) at +9, sixteen
+        // seats from +10 of 8 bytes each, the bone's key last, and the cargo
+        // list's u32 count at +164 with its u8 seat indices after it.
+        constexpr size_t kSeatCountAt = 9, kSeatsAt = 10, kSeatSize = 8, kCargoListAt = 164;
+        constexpr uint32_t kNoBone = 0xEAC5E173;   // what an unused seat holds
+        constexpr uint8_t kCargoSeat = 1;
+        // Taking the load off is the carried actor's Horse_UnCarry_Dead (302),
+        // on 5394 characterinfo rows, and it asks CheckRidingVehicleType(horse)
+        // of him: the _vehicleTypeNameHash at +1 after the vehicle row's name,
+        // hashlittle "horse". Broomy's is the ibex's. NpcBind_Release (11026)
+        // and NpcBind_Down_Release (1000222) ask the same under a NOT. In all
+        // three the call becomes horse OR the ibex's type, so "on a horse"
+        // means a horse or Broomy (no ibex has a cargo seat). Compiled, a call
+        // is 03, the u16 function id, its arguments and a u16 subject, here 0
+        // (the actor himself); OR is 00 before its two operands
+        // (conditioninfo 1000519 and 1003813 hold the same call with its text).
+        constexpr uint32_t kHorseType = 0xA50D2251, kIbexType = 0x5B9EB68A;
+        constexpr uint32_t kOnHorseRows[] = { 302, 11026, 1000222 };
+        // A horse's load pivots stand Kliff 0.7 m either side of its root and
+        // 1.25 m along it, within 1.5 m and 2 m up, facing within 90 degrees.
+        // On Broomy that was a spot by the bristles (Seth, test19: "a very
+        // specific spot"), and beside the cargo seat with a 2.25 m reach it
+        // was still small (test20: "it should be the same area i see ride
+        // in"). Broom_Ride's whole pivots, on B_Rider_01, hid the load
+        // altogether (test21). Broomy's keep the horse's pivots, boneless and
+        // turning Kliff to face the broom, with Broom_Ride's spot (1.2 m out,
+        // 0.3 m ahead of B_Rider_01, which is 0.4 m along the root) and reach:
+        // 2.5 m, 5 m up, any facing. Offsets inside a boneless pivot body.
+        constexpr size_t kPivotOutAt = 36, kPivotAlongAt = 44, kPivotReachAt = 68, kPivotUpAt = 72, kPivotFacingAt = 80;
+        constexpr float kHorseOut = 0.7f, kBroomOut = 1.2f, kHorseAlong = 1.25f, kBroomAlong = 0.1f;
+        constexpr float kHorseReach = 1.5f, kBroomReach = 2.5f, kHorseUp = 2.0f, kBroomUp = 5.0f;
+        constexpr float kHalfTurn = 1.5707964f, kFullTurn = 3.1415927f;
+        // InteractionInfo, as the game's reader (+0x150AC00) takes it: _key,
+        // _stringKey, then one byte each for _isBlocked, _interactionType,
+        // _interactionShowUIType, _preemptionType and _pivotSelectionType, the
+        // localized _interactionName, the pivots, the condition sets,
+        // _autoInteractionType (1 byte), _categoryInfo (2), _inputKeyMapName
+        // (4), the two click types (1 each), _activityGroupInfo (4), four
+        // flags, _onPreemptionSuccessAiEventKey (4), the trigger sound (4), the
+        // reward drop set (4), the pop item list, _dialogSetInfo, the tags,
+        // the child list, two menu strings and eleven one-byte flags, the
+        // tenth from the end _showWhenTargeted. It is 1 on Horse_Carry_Dead
+        // and every _Thief ride and 0 on the rides and on Horse_UnCarry_Dead:
+        // the prompt shows only for the actor in focus. Seth, test21: "Can you
+        // remove the requirement to be using focus to see it?"
+        constexpr size_t kShowWhenTargetedFromEnd = 10, kMenuStringsFromEnd = 19;
 
         // The charts of GoldStar, a cut dragon no character uses, which the
         // plugin serves as the broom's own (broomchart.h); the Wyvern's when
@@ -285,12 +365,32 @@ namespace bm::broomrows
                 return false;
             }
             rec[flags + kHirableIndex] = 1;
+            // _vanishTickCount, u32 milliseconds, the 4 bytes between the flag
+            // run and _uiPortraitPath, taken to be how long a fainted body
+            // stays in the world. With the ibex's 15 minutes a fainted Speeder
+            // Bike could be called again only after a reload (Buxunqingmo's
+            // 1.0.1 log, 6 October); Speeder Bike has had 1000 ms since 1.0.2.
+            if (Peek<uint32_t>(rec, at - 4) != 900000)
+            {
+                why = "the ibex's vanish time is not 900000 ms";
+                return false;
+            }
+            Poke<uint32_t>(rec, at - 4, kVanishMs);
 
             // _interactionInfoList: the ibex's two ride interactions become
-            // Broom_Ride and the Wyvern's mount in the air.
+            // Broom_Ride, the Wyvern's mount in the air, Broom_Carry_Dead and
+            // Broom_Ride_Catch. Without focus the game offers one interaction
+            // per target, the first on its list whose conditions pass; focus
+            // lists them all. A horse lists Horse_Ride_Catch before
+            // Horse_Carry_Dead, so with a bounty on Kliff's shoulder Ride
+            // wins and the load takes focus. Broomy's list has the load first
+            // (Seth, test22: "load shows on first call now but i still need
+            // focus"); riding with the bounty on his shoulder takes focus.
             const std::string ibexList = Bytes<uint32_t>(2) + Bytes<uint32_t>(kIbexRide[0]) + Bytes<uint32_t>(kIbexRide[1]);
-            const std::string wyvernList =
-                Bytes<uint32_t>(2) + Bytes<uint32_t>(kWyvernRide[0]) + Bytes<uint32_t>(kWyvernRide[1]);
+            const std::string wyvernList = Bytes<uint32_t>(g_offerLoad ? 4 : 3) + Bytes<uint32_t>(kWyvernRide[0]) +
+                                           Bytes<uint32_t>(kWyvernRide[1]) +
+                                           (g_offerLoad ? Bytes<uint32_t>(kBroomCarry) : std::string()) +
+                                           Bytes<uint32_t>(kBroomCatchRide);
             if (!Splice(rec, ibexList, wyvernList, "the ibex's interaction list", why)) return false;
 
             const int row = static_cast<int>(t.Rows());
@@ -397,6 +497,10 @@ namespace bm::broomrows
         // has. Until 0.12.24 the first pivot became a copy of the second and
         // Kliff got on from one side only. Both now stay as shipped; this
         // only checks they still end with the keys the chart is given.
+        bool CatchRide(tablefile::Table& t, const std::string& broom, size_t broomEnd, std::string& why);
+        bool CarryRow(tablefile::Table& t, std::string& why);
+        bool OnHorseOrBroomy(tablefile::Table& t, std::string& why);
+
         bool Interaction(tablefile::Table& t, std::string& report, std::string& why)
         {
             const std::string* src = t.Record(kWyvernRide[0]);
@@ -419,7 +523,186 @@ namespace bm::broomrows
                 why = "Broom_Ride's pivots do not end with their mount action keys where expected";
                 return false;
             }
-            report = "interactioninfo: Broom_Ride keeps both pivots, mount keys 262C63D3 and A272684B";
+            // A copy: each Append can move the table's records.
+            const std::string broom = *src;
+            if (!CatchRide(t, broom, to + n, why) || (g_offerLoad && (!CarryRow(t, why) || !OnHorseOrBroomy(t, why))))
+                return false;
+            report = "interactioninfo: Broom_Ride keeps both pivots, mount keys 262C63D3 and A272684B; "
+                     "Broom_Ride_Catch (1900068) added for mounting with a captive, mount keys 33F65149 and 4DC25870";
+            if (g_offerLoad)
+                report += "; Broom_Carry_Dead (1900069) added for loading one onto Broomy, Horse_Carry_Dead renamed, "
+                          "keys FDF23C06 and 2820B750, Ride's reach and no focus; Horse_UnCarry_Dead, "
+                          "NpcBind_Release and NpcBind_Down_Release take Broomy as a horse";
+            return true;
+        }
+
+        bool Expression(const std::string& rec, size_t pivotsEnd, size_t& from, size_t& to);
+
+        // Horse_Carry_Dead with its key and three names changed, its pivots
+        // widened to Broom_Ride's reach and _showWhenTargeted off, everything
+        // else the horse's (1.0.5-test19; pivots test22, _showWhenTargeted
+        // test24). The horse's load shows only in focus: the player holds
+        // focus (LT or L1), aims the dot at the back of the saddle and presses
+        // the action button (itemlevel.net's guide; Seth has loaded tied
+        // bounties onto his horse). Tests 13 to 18 were looked for without
+        // focus. Test17 and test18 built the row from Broom_Ride_Catch's parts
+        // and so dropped what 301 has and the ride rows lack: two condition
+        // sets (the carried body's and the mount's), _showUIAtPivotSocket 0
+        // where Broom_Ride has 1, the catch tag 29646F2B alone, and three of
+        // the closing flags. "Horse" and "Broom" are the same length, so the
+        // record keeps its 644 bytes.
+        bool CarryRow(tablefile::Table& t, std::string& why)
+        {
+            if (t.Record(kBroomCarry))
+            {
+                why = "interactioninfo already has key 1900069";
+                return false;
+            }
+            const std::string* carry = t.Record(kHorseCarry);
+            const std::string from = "Horse_Carry_Dead", to = kBroomCarryName;
+            const std::string name = NameBlock(from.c_str());
+            const std::string button("\x51\xC3\xE2\xF4\x15\xFC\x00\x02", 8);
+            if (!carry || Peek<uint32_t>(*carry, 0) != kHorseCarry || carry->compare(4, name.size(), name) != 0 ||
+                Peek<uint32_t>(*carry, 4 + name.size() + 1) != 2 || Count(*carry, from) != 3 || Count(*carry, button) != 1 ||
+                Count(*carry, Bytes<uint32_t>(kLoadRight)) != 1 || Count(*carry, Bytes<uint32_t>(kLoadLeft)) != 1)
+            {
+                why = "interactioninfo 301 is not Horse_Carry_Dead, a load (type 2) whose name, two pivot names, "
+                      "button and load keys each appear once";
+                return false;
+            }
+            static_assert(sizeof "Horse_Carry_Dead" == sizeof "Broom_Carry_Dead", "the record keeps its size");
+            std::string rec = *carry;
+            Poke<uint32_t>(rec, 0, kBroomCarry);
+            for (size_t at = rec.find(from); at != std::string::npos; at = rec.find(from, at + to.size()))
+                rec.replace(at, to.size(), to);
+            for (const char* pivot : { "TempPivotKey_Broom_Carry_Dead_1", "TempPivotKey_Broom_Carry_Dead_2" })
+            {
+                const std::string block = NameBlock(pivot);
+                const size_t at = rec.find(block), body = at + block.size();
+                const float out = Peek<float>(rec, body + kPivotOutAt);
+                if (at == std::string::npos || Peek<uint32_t>(rec, body) != 0 || (out != kHorseOut && out != -kHorseOut) ||
+                    Peek<float>(rec, body + kPivotAlongAt) != kHorseAlong ||
+                    Peek<float>(rec, body + kPivotReachAt) != kHorseReach || Peek<float>(rec, body + kPivotUpAt) != kHorseUp ||
+                    Peek<float>(rec, body + kPivotFacingAt) != -kHalfTurn ||
+                    Peek<float>(rec, body + kPivotFacingAt + 4) != kHalfTurn)
+                {
+                    why = "Horse_Carry_Dead's pivots are not boneless, 0.7 m out and 1.25 m along, within 1.5 m and 2 m "
+                          "up, facing within 90 degrees";
+                    return false;
+                }
+                Poke<float>(rec, body + kPivotOutAt, out > 0 ? kBroomOut : -kBroomOut);
+                Poke<float>(rec, body + kPivotAlongAt, kBroomAlong);
+                Poke<float>(rec, body + kPivotReachAt, kBroomReach);
+                Poke<float>(rec, body + kPivotUpAt, kBroomUp);
+                Poke<float>(rec, body + kPivotFacingAt, -kFullTurn);
+                Poke<float>(rec, body + kPivotFacingAt + 4, kFullTurn);
+            }
+            const size_t targeted = rec.size() - kShowWhenTargetedFromEnd;
+            if (Peek<uint64_t>(rec, rec.size() - kMenuStringsFromEnd) != 0 || Peek<uint8_t>(rec, targeted) != 1)
+            {
+                why = "Horse_Carry_Dead does not end with two empty menu strings and _showWhenTargeted 1";
+                return false;
+            }
+            Poke<uint8_t>(rec, targeted, 0);
+            if (!t.Append(kBroomCarry, rec))
+            {
+                why = "Broom_Carry_Dead could not be added to interactioninfo";
+                return false;
+            }
+            return true;
+        }
+
+        bool OnHorseOrBroomy(tablefile::Table& t, std::string& why)
+        {
+            const auto onType = [](uint32_t type)
+            { return std::string("\x03\x03\x01", 3) + Bytes<uint32_t>(type) + std::string(2, '\0'); };
+            const std::string horse = onType(kHorseType), either = std::string(1, '\0') + horse + onType(kIbexType);
+            for (uint32_t key : kOnHorseRows)
+            {
+                const std::string* src = t.Record(key);
+                std::string rec = src ? *src : std::string();
+                if (!src || !Splice(rec, horse, either, "CheckRidingVehicleType(horse)", why) || !t.Set(key, rec))
+                {
+                    why = "interactioninfo " + std::to_string(key) + ": " + (src ? why : "no such row");
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // A ride row after its pivots: u32 1, the condition expression, then 15
+        // fixed bytes before the hash block that starts 51 C3 19 E4.
+        bool Expression(const std::string& rec, size_t pivotsEnd, size_t& from, size_t& to)
+        {
+            static const std::string lead = Bytes<uint32_t>(1);
+            static const std::string hashes("\x51\xC3\x19\xE4", 4);
+            static const std::string run = std::string("\x00\x00\x01", 3) + std::string(12, '\0');
+            const size_t h = rec.find(hashes, pivotsEnd);
+            if (rec.compare(pivotsEnd, lead.size(), lead) != 0 || h == std::string::npos || h < pivotsEnd + lead.size() + run.size() ||
+                rec.compare(h - run.size(), run.size(), run) != 0)
+                return false;
+            from = pivotsEnd + lead.size();
+            to = h - run.size();
+            return true;
+        }
+
+        bool CatchRide(tablefile::Table& t, const std::string& broom, size_t broomEnd, std::string& why)
+        {
+            if (t.Record(kBroomCatchRide))
+            {
+                why = "interactioninfo already has key 1900068";
+                return false;
+            }
+            const std::string* horse = t.Record(kHorseCatchRide);
+            const std::string horseName = NameBlock("Horse_Ride_Catch");
+            const std::string h1 = NameBlock("TempPivotKey_Horse_Ride_Catch_1"), h2 = NameBlock("TempPivotKey_Horse_Ride_Catch_2");
+            const size_t ha = horse ? horse->find(h1) : std::string::npos, hb = horse ? horse->find(h2) : std::string::npos;
+            if (!horse || horse->compare(4, horseName.size(), horseName) != 0 || ha == std::string::npos ||
+                hb == std::string::npos || hb < ha + h1.size())
+            {
+                why = "interactioninfo 397 is not Horse_Ride_Catch with its two pivots in order";
+                return false;
+            }
+            const size_t horseEnd = hb + h2.size() + (hb - (ha + h1.size()));
+            size_t ef = 0, et = 0, hf = 0, ht = 0;
+            if (!Expression(broom, broomEnd, ef, et) || !Expression(*horse, horseEnd, hf, ht))
+            {
+                why = "a ride row's conditions are not between the pivots and the hash block as expected";
+                return false;
+            }
+
+            // Head: the new key and name, then Horse_Ride_Catch's localized
+            // prompt and pivot count, so the prompt has text.
+            const std::string b1 = NameBlock("TempPivotKey_Broom_Ride_1"), b2 = NameBlock("TempPivotKey_Broom_Ride_2");
+            const size_t ba = broom.find(b1), bb = broom.find(b2);
+            const size_t horseHead = 4 + horseName.size();
+            std::string rec = Bytes<uint32_t>(kBroomCatchRide) + NameBlock(kBroomCatchName) +
+                              horse->substr(horseHead, ha - horseHead);
+            // Pivots: Broom_Ride's, renamed, so Kliff mounts where he mounts
+            // Broomy. Each ends with an escort mount key in place of the broom
+            // mount's: the same climb on with the carry events, which keep the
+            // captive on his shoulder. The broom mount has none, and the game
+            // let go of the captive as he got on (1.0.5-test2).
+            std::string p1 = broom.substr(ba + b1.size(), bb - (ba + b1.size()));
+            std::string p2 = broom.substr(bb + b2.size(), broomEnd - (bb + b2.size()));
+            p1.replace(p1.size() - 0x38, 4, Bytes<uint32_t>(kEscortRight));
+            p2.replace(p2.size() - 0x38, 4, Bytes<uint32_t>(kEscortLeft));
+            rec += NameBlock("TempPivotKey_Broom_Ride_Catch_1") + p1;
+            rec += NameBlock("TempPivotKey_Broom_Ride_Catch_2") + p2;
+            // Tail: Broom_Ride's, with Horse_Ride_Catch's conditions and the
+            // catch tag beside the broom's three.
+            std::string tail = broom.substr(broomEnd);
+            tail.replace(ef - broomEnd, et - ef, horse->substr(hf, ht - hf));
+            const std::string tags = Bytes<uint32_t>(3) + std::string("\x89\x85\x87\x01\xE5\xE3\x8F\xFA\x62\xC2\x25\xE3", 12);
+            const std::string withCatch =
+                Bytes<uint32_t>(4) + std::string("\x89\x85\x87\x01\xE5\xE3\x8F\xFA\x2B\x6F\x64\x29\x62\xC2\x25\xE3", 16);
+            if (!Splice(tail, tags, withCatch, "Broom_Ride's three tags", why)) return false;
+            rec += tail;
+            if (!t.Append(kBroomCatchRide, rec))
+            {
+                why = "Broom_Ride_Catch could not be added to interactioninfo";
+                return false;
+            }
             return true;
         }
 
@@ -438,12 +721,30 @@ namespace bm::broomrows
             // _uiMapTextureInfo, a u32 key: Broomy's map row, not the ibex's.
             if (!Splice(rec, Bytes<uint32_t>(kIbexMapTexture), Bytes<uint32_t>(kBroomyKey), "the ibex's map icon", why))
                 return false;
+            if (g_offerLoad)
+            {
+                const size_t body = 2 + NameBlock(kVehicleName).size();
+                const size_t cargo = kSeatsAt + kSeatSize * kCargoSeat + 4;
+                if (Peek<uint32_t>(rec, body + 1) != kIbexType || Peek<uint8_t>(rec, body + kSeatCountAt) != 1 ||
+                    Peek<uint32_t>(rec, body + kSeatsAt + 4) != Key("B_Rider_01") ||
+                    Peek<uint32_t>(rec, body + cargo) != kNoBone ||
+                    rec.size() < body + kCargoListAt + 4 || Peek<uint32_t>(rec, body + kCargoListAt) != 0)
+                {
+                    why = "the ibex's vehicle row is not of the ibex's type, one seat on B_Rider_01 and an empty cargo list";
+                    return false;
+                }
+                Poke<uint8_t>(rec, body + kSeatCountAt, 2);
+                Poke<uint32_t>(rec, body + cargo, Key("B_Rider_02"));
+                Poke<uint32_t>(rec, body + kCargoListAt, 1);
+                rec.insert(body + kCargoListAt + 4, 1, static_cast<char>(kCargoSeat));
+            }
             if (!t.Append(kVehicleKey, rec))
             {
                 why = "vehicleinfo already has key 20000";
                 return false;
             }
-            report = "vehicleinfo: 20000 Broom, from AlpineIbex";
+            report = g_offerLoad ? "vehicleinfo: 20000 Broom, from AlpineIbex, with the horse's cargo seat (seat 1, B_Rider_02)"
+                                 : "vehicleinfo: 20000 Broom, from AlpineIbex";
             return true;
         }
 
@@ -581,6 +882,7 @@ namespace bm::broomrows
     }
 
     void UseOwnCharts(bool own) { g_ownCharts = own; }
+    void OfferLoad(bool on) { g_offerLoad = on; }
 
     bool BuildTable(const char* name, const std::string& header, const std::string& body, std::string& outHeader,
                     std::string& outBody, std::string& report, std::string& why, CharacterFacts* facts)

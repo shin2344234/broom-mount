@@ -31,16 +31,26 @@ edit. Everything Broomy needs that the game doesn't ship comes from memory:
   level flight, the rider's push-off and leans, and Damiane's own riding
   clips, which nodes of hers added to Kliff's riding charts play. The
   riders' lean blends are laid out on Broomy's speeds.
+- The horse's way of loading a bounty. Broomy's vehicle row gets the horse's cargo seat, its interaction list gets a copy of
+  Horse_Carry_Dead that shows without focus, and the horse's Unload accepts
+  Broomy. Every broom clip moves the cargo seat behind Kliff, and the
+  bounty's lying clip is placed from it. Mounting with a bounty on the
+  shoulder runs copies of the broom's mount and dismount that keep the
+  carry, and an idle that holds him there in flight.
 - A map icon drawn with the game's broom item icon.
 
 A few seconds after a save loads, the plugin checks the roster. A save
 without Broomy gets one by hiring a wild horse under Broomy's character row
-on the game server's own thread. Broomy's list is the third in the saddle
+on the game server's own thread, or after four seconds with no horse in
+reach, another wild animal. Broomy's list is the third in the saddle
 wedge, so the game's own call branch calls it. While Broomy is chosen, a
 hook on the rider's chart checks stops a call while falling from bringing
 Blackstar. Another has the game evaluate the rider's lean blend every frame,
 so the lean eases with the speed, and another scales Broomy's speed by the
-left stick.
+left stick. A call that finds Broomy fainted clears it from the roster entry,
+so the server spawns a fresh one. A call that finds Broomy already out goes
+to the server twice, which brings it back with the arrival the Ride prompt
+waits for.
 
 The full account of how the mod was made, with the addresses, formats and
 everything that was tried and dropped, is in

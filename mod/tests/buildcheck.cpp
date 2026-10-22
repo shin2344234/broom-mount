@@ -12,6 +12,9 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <utility>
+
+#include <Windows.h>
 
 #include "game/broomrows.h"
 #include "game/lz4.h"
@@ -64,6 +67,19 @@ int main(int argc, char** argv)
             ++failed;
             continue;
         }
+        // BUILDCHECK_DUMP=DIR writes each built table there, to read a new row.
+        char dump[512] = {};
+        if (GetEnvironmentVariableA("BUILDCHECK_DUMP", dump, sizeof dump))
+            for (const auto& [ext, data] : { std::pair<const char*, const std::string*>{ ".staticinfoheader", &gotH },
+                                            { ".staticinfobody", &gotB } })
+            {
+                FILE* f = nullptr;
+                if (fopen_s(&f, (std::string(dump) + "/" + name + ext).c_str(), "wb") == 0 && f)
+                {
+                    fwrite(data->data(), 1, data->size(), f);
+                    fclose(f);
+                }
+            }
         const bool same = gotH == wantH && gotB == wantB;
         printf("%-30s %s  %s\n", name, same ? "identical" : "DIFFERENT", report.c_str());
         if (!same)
