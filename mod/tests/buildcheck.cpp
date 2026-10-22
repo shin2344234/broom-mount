@@ -18,6 +18,7 @@
 
 #include "game/broomrows.h"
 #include "game/lz4.h"
+#include "game/tablefile.h"
 
 namespace
 {
@@ -41,6 +42,81 @@ namespace
     }
 }
 
+namespace
+{
+    // Table::Parse on offsets at the edges of the body: a record offset equal to
+    // body.size() once dereferenced upper_bound's end(). Returns the number of
+    // failures.
+    int CheckParseEdges()
+    {
+        using bm::tablefile::Table;
+        struct Case
+        {
+            const char* what;
+            std::string header, body;
+            bool parses;
+        };
+        // u16 count, then (u8 key, u32 offset) per row.
+        const Case cases[] = {
+            { "one row at offset 1 of a 1-byte body (the issue's input)", std::string("\x01\x00\x07\x01\x00\x00\x00", 7),
+              "x", false },
+            { "one row at offset 2 of a 1-byte body", std::string("\x01\x00\x07\x02\x00\x00\x00", 7), "x", false },
+            { "one empty row at offset 0 of an empty body", std::string("\x01\x00\x07\x00\x00\x00\x00", 7), "", true },
+            { "a record, then an empty last record at the end of the body",
+              std::string("\x02\x00\x07\x00\x00\x00\x00\x08\x01\x00\x00\x00", 12), "x", true },
+            { "two records", std::string("\x02\x00\x07\x00\x00\x00\x00\x08\x01\x00\x00\x00", 12), "xy", true },
+        };
+        int failed = 0;
+        for (const Case& c : cases)
+        {
+            Table t;
+            std::string why;
+            const bool parsed = t.Parse(c.header, c.body, why);
+            std::string h, b;
+            const bool same = !parsed || (t.Build(h, b, why) && h == c.header && b == c.body);
+            const bool ok = parsed == c.parses && same;
+            printf("%-30s %s  %s\n", "tablefile", ok ? "ok" : "FAILED", c.what);
+            if (!ok) ++failed;
+        }
+        return failed;
+    }
+
+    // Broomy's characterinfo row lists Broom_Ride_Catch (1900068) and
+    // Broom_Carry_Dead (1900069) only when interactioninfo is served with
+    // them; otherwise it must name neither.
+    int CheckInteractionList(const std::string& in)
+    {
+        std::string h, b;
+        if (!Load(in + "characterinfo.staticinfoheader", h) || !Load(in + "characterinfo.staticinfobody", b))
+            return 0;   // the table loop already counted the missing files
+        int failed = 0;
+        for (bool served : { true, false })
+        {
+            std::string oh, ob, report, why;
+            bm::broomrows::CharacterFacts facts;
+            if (!bm::broomrows::BuildTable("characterinfo", h, b, oh, ob, report, why, &facts, served))
+            {
+                printf("%-30s FAILED: %s\n", "characterinfo list", why.c_str());
+                ++failed;
+                continue;
+            }
+            bm::tablefile::Table t;
+            std::string parse;
+            const bool parsed = t.Parse(oh, ob, parse) && facts.broomyRow >= 0;
+            const std::string row = parsed ? t.RecordAt(facts.broomyRow) : std::string();
+            auto has = [&](uint32_t key)
+            { return row.find(std::string(reinterpret_cast<const char*>(&key), 4)) != std::string::npos; };
+            const bool ride = has(1000068), air = has(1000264), catchRide = has(1900068), carry = has(1900069);
+            const bool ok = parsed && ride && air && catchRide == served && carry == served;
+            printf("%-30s %s  interactions served %d: Broom_Ride %d, Wyvern_RideAir %d, Broom_Ride_Catch %d, "
+                   "Broom_Carry_Dead %d\n    %s\n",
+                   "characterinfo list", ok ? "ok" : "FAILED", served, ride, air, catchRide, carry, report.c_str());
+            if (!ok) ++failed;
+        }
+        return failed;
+    }
+}
+
 int main(int argc, char** argv)
 {
     if (argc != 3)
@@ -49,7 +125,7 @@ int main(int argc, char** argv)
         return 2;
     }
     const std::string in = std::string(argv[1]) + "/", out = std::string(argv[2]) + "/";
-    int failed = 0;
+    int failed = CheckParseEdges();
     for (const char* name : bm::broomrows::kTables)
     {
         std::string h, b, wantH, wantB, gotH, gotB, report, why;
@@ -101,6 +177,8 @@ int main(int argc, char** argv)
                    facts.broomyRow, known, facts.mercInfo.size(), horses, facts.mercInfo[facts.broomyRow]);
         }
     }
+
+    failed += CheckInteractionList(in);
 
     std::string paloc, wantPlain, got, why;
     if (Load(in + "character.paloc", paloc) && Load(out + "character.paloc.plain", wantPlain))

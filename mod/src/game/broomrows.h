@@ -75,8 +75,12 @@ namespace bm::broomrows
     // A table's new header and body from the game's. `report` is one line
     // for the log. False, with `why`, when the game's rows are not the ones
     // this was written against; the game then keeps its own table.
+    // `interactionsServed` is for characterinfo only: whether the game is
+    // given Broomy's interactioninfo, the one holding Broom_Ride_Catch and
+    // Broom_Carry_Dead. When it is not, Broomy's row names neither of them.
     bool BuildTable(const char* name, const std::string& header, const std::string& body, std::string& outHeader,
-                    std::string& outBody, std::string& report, std::string& why, CharacterFacts* facts = nullptr);
+                    std::string& outBody, std::string& report, std::string& why, CharacterFacts* facts = nullptr,
+                    bool interactionsServed = true);
 
     // character.paloc with Broomy's name added.
     bool BuildPaloc(const std::string& game, std::string& out, std::string& why);

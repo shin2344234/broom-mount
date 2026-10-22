@@ -47,10 +47,13 @@ wedge, so the game's own call branch calls it. While Broomy is chosen, a
 hook on the rider's chart checks stops a call while falling from bringing
 Blackstar. Another has the game evaluate the rider's lean blend every frame,
 so the lean eases with the speed, and another scales Broomy's speed by the
-left stick. A call that finds Broomy fainted clears it from the roster entry,
-so the server spawns a fresh one. A call that finds Broomy already out goes
-to the server twice, which brings it back with the arrival the Ride prompt
-waits for.
+left stick. A call that finds Broomy marked dead clears it from the roster
+entry, so the server spawns a fresh one. A call that finds it groggy (the
+game's "fainted") clears it too, but only after the game's own groggy test
+has said so, from a hook on that one call, because the test runs under a lock
+a detour cannot take. The game refuses that press, and the next one brings a
+fresh Broomy. A call that finds Broomy already out goes to the server twice,
+which brings it back with the arrival the Ride prompt waits for.
 
 The full account of how the mod was made, with the addresses, formats and
 everything that was tried and dropped, is in

@@ -132,6 +132,13 @@ namespace
     constexpr DWORD kOutAtCallMs = 500;
     unsigned char   g_callCopy[256];
 
+    // What the call check's lookup last found, for the groggy test that runs a
+    // few instructions later in the same check (GroggyDetour).
+    volatile LONG64 g_lookedStatus = 0;
+    volatile LONG   g_lookedId = 0;
+    volatile LONG   g_lookedAt = 0;
+    constexpr DWORD kLookedMs = 500;
+
     bool g_give = true;   // GiveBroomy; without it the roster is read, never added to
 
     // The actor's position and the transform field it came from (0 when none
@@ -628,7 +635,8 @@ namespace
     // here does not hold, and +0x320 reads 2 at every call of a Broomy that
     // is up, so calling it would race on every call; a wrong "groggy" would
     // clear the roster entry of a Broomy still out (review, 21 October). A
-    // groggy Broomy waits out its stun as the game says.
+    // groggy Broomy is handled by GroggyDetour below, which sits on the game's
+    // own locked test.
     typedef uint64_t (*FnCallLookup)(uintptr_t manager, uintptr_t out, uintptr_t id);
     typedef void (*FnReleaseResult)(uintptr_t out);
     FnCallLookup    g_callLookupOriginal = nullptr;
@@ -657,6 +665,9 @@ namespace
             LOG("[faint] Broomy (actor %08X) is up at the call (+0x272 %u, +0x273 %u, +0x320 %d).",
                 static_cast<uint32_t>(id), deadA, deadB, static_cast<int32_t>(groggy));
             InterlockedExchange(&g_outAtCall, static_cast<LONG>(GetTickCount() | 1));
+            InterlockedExchange64(&g_lookedStatus, static_cast<LONG64>(status));
+            InterlockedExchange(&g_lookedId, static_cast<LONG>(id));
+            InterlockedExchange(&g_lookedAt, static_cast<LONG>(GetTickCount() | 1));
             return r;
         }
         const bool stored = g_seenCount && StoreBroomy(g_seen[0].clan, static_cast<uint32_t>(id));
@@ -675,6 +686,48 @@ namespace
             "is cleared, so the call brings a fresh one.",
             static_cast<uint32_t>(id), deadA, deadB, static_cast<int32_t>(groggy));
         return r;
+    }
+
+    // A groggy Broomy (Buxunqingmo met "Cannot summon because it's fainted"
+    // and, other times, "because it's dead"; the game's text has both, which
+    // fits eErrNoCanCallFailedByGroggy and eErrNoCanCallFailedByDead, a match
+    // inferred from the names and not proven). CallLookupDetour above cannot
+    // see this one: the dead bytes are clear. The game takes its reader lock
+    // on [[status+8]+8] right after the lookup and, when +0x320 is above 0,
+    // runs the groggy test (+0x1794ED0) under it, the E8 at +0x7FD117. This
+    // detour sits on that one call, so the test runs exactly as the game runs
+    // it, under the game's lock, and the detour only reads the answer. When
+    // it says groggy for the mount the lookup just found, the roster entry's
+    // actor id is cleared as for a dead one. The game still refuses this
+    // press (the result is not changed, since what the check does with a
+    // mount that is out and "not groggy" is untested), and the next press
+    // finds no mount out and brings a fresh Broomy, as after a load. Ported
+    // from Speeder Bike's GroggyDetour (22 October). Each mod keeps its own
+    // g_looked*, set only for its own mount's row, so with both installed
+    // each detour passes the other's status through.
+    typedef bool (*FnGroggy)(uintptr_t status);
+    FnGroggy g_groggyOriginal = nullptr;
+
+    bool GroggyDetour(uintptr_t status)
+    {
+        const bool groggy = g_groggyOriginal(status);
+        const LONG at = g_lookedAt;
+        if (!groggy || !at || static_cast<LONG64>(status) != g_lookedStatus ||
+            static_cast<LONG>(GetTickCount() - static_cast<DWORD>(at)) > static_cast<LONG>(kLookedMs))
+            return groggy;
+        const uint32_t id = static_cast<uint32_t>(InterlockedExchange(&g_lookedId, 0));
+        InterlockedExchange(&g_lookedAt, 0);
+        InterlockedExchange64(&g_lookedStatus, 0);
+        InterlockedExchange(&g_outAtCall, 0);   // this press is refused, so nothing follows to send twice
+        uint32_t groggyValue = 0;
+        bm::mem::Read32(status + kOff_Status_Groggy, &groggyValue);
+        if (id && g_seenCount && StoreBroomy(g_seen[0].clan, id))
+            LOG("[faint] Broomy (actor %08X) is groggy at the call (+0x320 %d); its roster entry is cleared. The game "
+                "refuses this call, and the next one brings a fresh Broomy.", id, static_cast<int32_t>(groggyValue));
+        else
+            LOG_ERR("[faint] Broomy (actor %08X) is groggy at the call (+0x320 %d), but its roster entry was not found "
+                    "to clear, so it waits as the game says.", id, static_cast<int32_t>(groggyValue));
+        return groggy;
     }
 
     void InstallCallCheck()
@@ -699,6 +752,19 @@ namespace
             return;
         }
         LOG("[faint] a call while Broomy is down brings a fresh one.");
+        if (!bm::mem::MatchAt(at + kOff_CallCheck_GroggySig, kSig_CallCheckGroggy))
+        {
+            LOG_ERR("[faint] the groggy test's call was not where expected, so a groggy Broomy waits as the game says.");
+            return;
+        }
+        if (!bm::farhook::InstallOverJump("mount call check groggy test", at + kOff_CallCheck_GroggySig + 3,
+                                          reinterpret_cast<void*>(&GroggyDetour),
+                                          reinterpret_cast<void**>(&g_groggyOriginal), why, sizeof why))
+        {
+            LOG_ERR("[faint] could not hook the groggy test (%s), so a groggy Broomy waits as the game says.", why);
+            return;
+        }
+        LOG("[faint] a call while Broomy is groggy clears it, and the call after that brings a fresh one.");
     }
 }
 

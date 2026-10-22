@@ -263,7 +263,8 @@ namespace bm::broomrows
             }
         }
 
-        bool Character(tablefile::Table& t, std::string& report, std::string& why, CharacterFacts* facts)
+        bool Character(tablefile::Table& t, std::string& report, std::string& why, CharacterFacts* facts,
+                       bool interactionsServed)
         {
             const std::string* src = t.Record(kIbexKey);
             if (!src)
@@ -386,11 +387,19 @@ namespace bm::broomrows
             // wins and the load takes focus. Broomy's list has the load first
             // (Seth, test22: "load shows on first call now but i still need
             // focus"); riding with the bounty on his shoulder takes focus.
+            //
+            // Broom_Ride_Catch and Broom_Carry_Dead are interactioninfo rows
+            // of Broomy's own. When the game keeps its own interactioninfo
+            // (another mod changed it, so Interaction was not built or not
+            // served), the keys name no row, and a list holding them is
+            // broken. The list is then Broom_Ride and Wyvern_RideAir alone.
+            const bool load = g_offerLoad && interactionsServed;
             const std::string ibexList = Bytes<uint32_t>(2) + Bytes<uint32_t>(kIbexRide[0]) + Bytes<uint32_t>(kIbexRide[1]);
-            const std::string wyvernList = Bytes<uint32_t>(g_offerLoad ? 4 : 3) + Bytes<uint32_t>(kWyvernRide[0]) +
-                                           Bytes<uint32_t>(kWyvernRide[1]) +
-                                           (g_offerLoad ? Bytes<uint32_t>(kBroomCarry) : std::string()) +
-                                           Bytes<uint32_t>(kBroomCatchRide);
+            const std::string wyvernList =
+                !interactionsServed
+                    ? Bytes<uint32_t>(2) + Bytes<uint32_t>(kWyvernRide[0]) + Bytes<uint32_t>(kWyvernRide[1])
+                    : Bytes<uint32_t>(load ? 4 : 3) + Bytes<uint32_t>(kWyvernRide[0]) + Bytes<uint32_t>(kWyvernRide[1]) +
+                          (load ? Bytes<uint32_t>(kBroomCarry) : std::string()) + Bytes<uint32_t>(kBroomCatchRide);
             if (!Splice(rec, ibexList, wyvernList, "the ibex's interaction list", why)) return false;
 
             const int row = static_cast<int>(t.Rows());
@@ -404,9 +413,12 @@ namespace bm::broomrows
                 facts->broomyRow = row;
                 MercenaryInfoByRow(t, facts->mercInfo);
             }
-            char line[128];
-            snprintf(line, sizeof line, "characterinfo: %u %s at row %d, from Riding_AlpineIbex_1", kBroomyKey,
-                     kBroomyName, row);
+            char line[256];
+            snprintf(line, sizeof line, "characterinfo: %u %s at row %d, from Riding_AlpineIbex_1%s", kBroomyKey,
+                     kBroomyName, row,
+                     !interactionsServed ? ", interactions Broom_Ride and Wyvern_RideAir only (interactioninfo is the game's own)"
+                     : load ? ", interactions with Broom_Ride_Catch and Broom_Carry_Dead"
+                            : ", interactions with Broom_Ride_Catch");
             report = line;
             return true;
         }
@@ -885,7 +897,8 @@ namespace bm::broomrows
     void OfferLoad(bool on) { g_offerLoad = on; }
 
     bool BuildTable(const char* name, const std::string& header, const std::string& body, std::string& outHeader,
-                    std::string& outBody, std::string& report, std::string& why, CharacterFacts* facts)
+                    std::string& outBody, std::string& report, std::string& why, CharacterFacts* facts,
+                    bool interactionsServed)
     {
         tablefile::Table t;
         std::string parse;
@@ -896,7 +909,7 @@ namespace bm::broomrows
         }
         bool ok = false;
         if (!strcmp(name, "stringinfo")) ok = Strings(t, report, why);
-        else if (!strcmp(name, "characterinfo")) ok = Character(t, report, why, facts);
+        else if (!strcmp(name, "characterinfo")) ok = Character(t, report, why, facts, interactionsServed);
         else if (!strcmp(name, "mercenaryinfo")) ok = Mercenary(t, report, why, facts);
         else if (!strcmp(name, "mercenarygroupinfo")) ok = Group(t, report, why);
         else if (!strcmp(name, "reserveslot")) ok = Slot(t, report, why);

@@ -210,6 +210,11 @@ namespace bm::sig
     inline constexpr unsigned kOff_CallCheck_Lookup = 0x22;
     inline constexpr unsigned kOff_CallCheck_ReleaseSig = 0x79;
     inline constexpr const char* kSig_CallCheckRelease = "48 8D 4D B0 E8";
+    // `mov rcx,rbx; call +0x1794ED0`, the groggy test, which the game runs
+    // under its own reader lock on [[status+8]+8]. The hook goes on the E8, 3
+    // bytes after the start of the pattern (+0x7FD117). From Speeder Bike.
+    inline constexpr unsigned kOff_CallCheck_GroggySig = 0xF7;
+    inline constexpr const char* kSig_CallCheckGroggy = "48 8B CB E8";
     inline constexpr unsigned kOff_MountComp_Actor = 0x08;
     inline constexpr unsigned kOff_Status_DeadA = 0x272;
     inline constexpr unsigned kOff_Status_DeadB = 0x273;

@@ -109,7 +109,16 @@ namespace bm::tablefile
         for (size_t row = 0; row < entries.size(); ++row)
         {
             const uint32_t off = entries[row].second;
-            const uint32_t end = *std::upper_bound(offs.begin(), offs.end(), off);
+            // The last record's offset may equal body.size(), an empty record
+            // at the very end. Nothing in `offs` is larger than it then, so
+            // upper_bound returns end() and the sentinel is the answer.
+            const auto next = std::upper_bound(offs.begin(), offs.end(), off);
+            const uint32_t end = next == offs.end() ? static_cast<uint32_t>(body.size()) : *next;
+            if (end < off)
+            {
+                why = "a header offset runs past the end of the body";
+                return false;
+            }
             keys_.push_back(entries[row].first);
             records_.emplace_back(body.data() + off, end - off);
             byOffset.push_back({ off, row });

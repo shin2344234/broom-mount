@@ -258,46 +258,97 @@ namespace
         return true;
     }
 
+    bool InteractionsServed();
+
+    // Builds table `t` once; the caller holds its entry's lock. `game` is the
+    // half the game is reading now (`half`), or null to read both through the
+    // game's loader, as InteractionsServed does.
+    void BuildEntry(int t, int half, bool found, const std::string* game)
+    {
+        Entry& e = g_entries[t];
+        const char* name = kTables[t];
+        e.tried = true;
+        std::string part[2], report, why;
+        const std::string* have[2] = { nullptr, nullptr };
+        if (game) have[half] = game;
+        if (!found)
+        {
+            LOG_ERR("[tables] %s: the game's own read of it failed, so it is left alone.", name);
+            return;
+        }
+        for (int i = 0; i < 2; ++i)
+        {
+            if (have[i]) continue;
+            const std::string path = std::string(kTableDir) + name + (i ? kBodyExt : kHeaderExt);
+            if (!bm::gamefile::ReadFile(path.c_str(), part[i]))
+            {
+                LOG_ERR("[tables] %s: its other half could not be read through the game's loader, so the game keeps "
+                        "its own table and Broomy's rows in it are missing.", name);
+                return;
+            }
+            have[i] = &part[i];
+        }
+        const std::string& h = *have[0];
+        const std::string& b = *have[1];
+        CharacterFacts facts;
+        const bool character = !strcmp(name, "characterinfo"), merc = !strcmp(name, "mercenaryinfo");
+        // Broomy's character row names two rows of interactioninfo, which is
+        // built and served on its own and may be read before or after this
+        // table. So its outcome is settled here, whichever the game reads
+        // first. The lock order is characterinfo's, then interactioninfo's;
+        // building interactioninfo never asks for characterinfo's.
+        bool interactions = true;
+        if (character)
+        {
+            interactions = InteractionsServed();
+            if (!interactions)
+                LOG_ERR("[tables] characterinfo: interactioninfo is not Broomy's (it is the game's own or another "
+                        "mod's, see above), so Broomy's row does not list Broom_Ride_Catch or Broom_Carry_Dead, and "
+                        "mounting with a bounty on the shoulder and loading one onto Broomy are missing.");
+        }
+        if (BuildTable(name, h, b, e.ours[0], e.ours[1], report, why, character || merc ? &facts : nullptr, interactions))
+        {
+            e.ok = true;
+            e.shipped[0] = { h.size(), bm::tablefile::Crc32(h.data(), h.size()) };
+            e.shipped[1] = { b.size(), bm::tablefile::Crc32(b.data(), b.size()) };
+            LOG("[tables] %s", report.c_str());
+            if (character)
+            {
+                AcquireSRWLockExclusive(&g_factsLock);
+                g_facts = std::move(facts);
+                ReleaseSRWLockExclusive(&g_factsLock);
+            }
+            if (merc) InterlockedExchange(&g_broomyList, facts.broomyList);
+        }
+        else
+            LOG_ERR("[tables] %s is the game's own: %s. Broomy will be missing whatever this table holds for it.", name,
+                    why.c_str());
+    }
+
+    // Whether the game is given Broomy's interactioninfo: it is built from the
+    // game's own bytes (read here if the game has not asked for them yet) and
+    // came out. The game's reads then have to match those bytes, as ServeTable
+    // checks, which they do unless the file changes between two reads.
+    bool InteractionsServed()
+    {
+        int t = -1;
+        for (int i = 0; i < kTableCount; ++i)
+            if (!strcmp(kTables[i], "interactioninfo")) t = i;
+        if (t < 0) return false;
+        Entry& e = g_entries[t];
+        AcquireSRWLockExclusive(&e.lock);
+        if (!e.tried) BuildEntry(t, 0, true, nullptr);
+        const bool ok = e.ok;
+        ReleaseSRWLockExclusive(&e.lock);
+        return ok;
+    }
+
     bool ServeTable(int t, int half, bool found, const std::string& game, std::string& out)
     {
         Entry& e = g_entries[t];
         const char* name = kTables[t];
         AcquireSRWLockExclusive(&e.lock);
-        if (!e.tried)
-        {
-            e.tried = true;
-            std::string other, report, why;
-            const std::string otherPath = std::string(kTableDir) + name + (half ? kHeaderExt : kBodyExt);
-            if (!found)
-                LOG_ERR("[tables] %s: the game's own read of it failed, so it is left alone.", name);
-            else if (!bm::gamefile::ReadFile(otherPath.c_str(), other))
-                LOG_ERR("[tables] %s: its other half could not be read through the game's loader, so the game keeps "
-                        "its own table and Broomy's rows in it are missing.", name);
-            else
-            {
-                const std::string& h = half ? other : game;
-                const std::string& b = half ? game : other;
-                CharacterFacts facts;
-                const bool character = !strcmp(name, "characterinfo"), merc = !strcmp(name, "mercenaryinfo");
-                if (BuildTable(name, h, b, e.ours[0], e.ours[1], report, why, character || merc ? &facts : nullptr))
-                {
-                    e.ok = true;
-                    e.shipped[0] = { h.size(), bm::tablefile::Crc32(h.data(), h.size()) };
-                    e.shipped[1] = { b.size(), bm::tablefile::Crc32(b.data(), b.size()) };
-                    LOG("[tables] %s", report.c_str());
-                    if (character)
-                    {
-                        AcquireSRWLockExclusive(&g_factsLock);
-                        g_facts = std::move(facts);
-                        ReleaseSRWLockExclusive(&g_factsLock);
-                    }
-                    if (merc) InterlockedExchange(&g_broomyList, facts.broomyList);
-                }
-                else
-                    LOG_ERR("[tables] %s is the game's own: %s. Broomy will be missing whatever this table holds for it.",
-                            name, why.c_str());
-            }
-        }
+        if (!e.tried) BuildEntry(t, half, found, &game);
         bool serve = false;
         if (e.ok)
         {

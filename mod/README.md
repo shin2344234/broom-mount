@@ -45,7 +45,10 @@ The faster Broomy flies, the further the rider leans over the handle, from
 mostly upright at a slow push to down against it at full boost. In level
 flight the broom holds still, so the hands stay on the grip.
 
-If Broomy faints, the next call brings a fresh one.
+After a faint the game lets you call Broomy again within a second, where it
+used to make you wait five minutes. If the game still says "Cannot summon
+because it's fainted" or "because it's dead", that press is refused, and the
+next one brings a fresh Broomy.
 
 On a controller the speed follows how far the left stick is pushed. The
 boost and the keyboard always move at full speed.
