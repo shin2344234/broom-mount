@@ -139,6 +139,17 @@ namespace
     volatile LONG   g_lookedAt = 0;
     constexpr DWORD kLookedMs = 500;
 
+    // The mount GroggyDetour last cleared from the roster, and when. The
+    // client keeps its own record of the mount that is out, so clearing the
+    // server's entry did not change what the next press's lookup found: it
+    // found the fainted mount again, the groggy test refused the call again,
+    // and every press after the first logged "not found to clear" until a
+    // load (Seth, 23 October 2026). The next lookup that finds this actor
+    // lets the result go as for a dead mount, once.
+    volatile LONG   g_clearedId = 0;
+    volatile LONG   g_clearedAt = 0;
+    constexpr DWORD kClearedMs = 300000;
+
     bool g_give = true;   // GiveBroomy; without it the roster is read, never added to
 
     // The actor's position and the transform field it came from (0 when none
@@ -660,6 +671,19 @@ namespace
             !bm::mem::Read8(status + kOff_Status_DeadA, &deadA) || !bm::mem::Read8(status + kOff_Status_DeadB, &deadB) ||
             !bm::mem::Read32(status + kOff_Status_Groggy, &groggy))
             return r;
+        const LONG cleared = g_clearedAt;
+        if (cleared && static_cast<uint32_t>(g_clearedId) == static_cast<uint32_t>(id) &&
+            GetTickCount() - static_cast<DWORD>(cleared) <= kClearedMs &&
+            InterlockedCompareExchange(&g_clearedAt, 0, cleared) == cleared)
+        {
+            g_releaseResult(res);
+            *reinterpret_cast<uint8_t*>(res + kOff_Lookup_Found) = 0;
+            *reinterpret_cast<uintptr_t*>(res + kOff_Lookup_Actor) = 0;
+            LOG("[faint] Broomy (actor %08X) fainted at the last call and its roster entry is cleared, so this "
+                "call brings a fresh Broomy (+0x272 %u, +0x273 %u, +0x320 %d).",
+                static_cast<uint32_t>(id), deadA, deadB, static_cast<int32_t>(groggy));
+            return r;
+        }
         if (!deadA && !deadB)
         {
             LOG("[faint] Broomy (actor %08X) is up at the call (+0x272 %u, +0x273 %u, +0x320 %d).",
@@ -722,8 +746,12 @@ namespace
         uint32_t groggyValue = 0;
         bm::mem::Read32(status + kOff_Status_Groggy, &groggyValue);
         if (id && g_seenCount && StoreBroomy(g_seen[0].clan, id))
+        {
+            InterlockedExchange(&g_clearedId, static_cast<LONG>(id));
+            InterlockedExchange(&g_clearedAt, static_cast<LONG>(GetTickCount() | 1));
             LOG("[faint] Broomy (actor %08X) is groggy at the call (+0x320 %d); its roster entry is cleared. The game "
                 "refuses this call, and the next one brings a fresh Broomy.", id, static_cast<int32_t>(groggyValue));
+        }
         else
             LOG_ERR("[faint] Broomy (actor %08X) is groggy at the call (+0x320 %d), but its roster entry was not found "
                     "to clear, so it waits as the game says.", id, static_cast<int32_t>(groggyValue));
