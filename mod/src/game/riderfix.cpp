@@ -136,11 +136,101 @@ namespace
                 if (*at == was) *at = want;
                 else if (*at != want) ok = false;
             }
-            InterlockedExchange(&g_swapped, on ? 1 : 0);
-            LOG(ok ? "[rider] Kliff's lower chart %s." : "[rider] Kliff's lower chart %s, but a branch held other bytes.",
-                on ? "takes his broom states (Broomy is ridden)" : "is back to its shipped targets");
+            // A branch holding the other mount's target when ours go in is
+            // Broomy's and the speeder's swaps meeting on the same words:
+            // the other mod lets go in its own detour on this same check, so
+            // ours go in on the next one. Before, the swap counted as in and
+            // those branches kept the other mount's targets (SpeederBike.log,
+            // 23 October 2026, 11:23:29).
+            static volatile LONG s_heldLines = 0;
+            if (on && !ok)
+            {
+                if (InterlockedIncrement(&s_heldLines) <= 20)
+                    LOG("[rider] Kliff's lower chart holds the other mount's targets, so Broomy's go in on the next check.");
+            }
+            else
+            {
+                InterlockedExchange(&g_swapped, on ? 1 : 0);
+                LOG(ok ? "[rider] Kliff's lower chart %s." : "[rider] Kliff's lower chart %s, but a branch held other bytes.",
+                    on ? "takes his broom states (Broomy is ridden)" : "is back to its shipped targets");
+            }
         }
         ReleaseSRWLockExclusive(&g_swapLock);
+    }
+
+    // Which mount Kliff is on, with the Speeder Bike loaded. Both mounts'
+    // RideOn charts are checked every frame from their first ride to the end
+    // of the session, ridden or not (SpeederBike.log, 23 October 2026), so
+    // Broomy's running said Broomy was ridden while Kliff rode the speeder,
+    // and Broomy's swap stayed in under him. Standing still, a mount's chart
+    // sits in the ground idle F5150415, whose branches are at +0xC0B4,
+    // +0xC5FC and +0xC630 of the Wyvern's chart both are built from; getting
+    // on or moving takes it through other actions, and in the logged run only
+    // the ridden mount's chart ever left its idle (11:23). So the mount whose
+    // chart last left its idle is the one he is on. SpeederBike.asi says where
+    // its chart is (SpeederBikeRideOnChart).
+    constexpr uint32_t kIdleBranches[] = { 0xC0B4, 0xC5FC, 0xC630 };
+    typedef int (*FnSpeederChart)(uintptr_t* base, uint32_t* size);
+    FnSpeederChart g_speederChart = nullptr;
+    volatile uintptr_t g_speederBase = 0;
+    volatile uint32_t g_speederSize = 0;
+    volatile LONG g_speederAsked = 0;
+    volatile LONG g_broomMovedAt = 0, g_speederMovedAt = 0;
+    volatile LONG g_onSpeederLogged = 0;
+
+    bool Idle(uint32_t off)
+    {
+        for (uint32_t b : kIdleBranches)
+            if (off == b) return true;
+        return false;
+    }
+
+    bool OnSpeeder()
+    {
+        const LONG sp = g_speederMovedAt, b = g_broomMovedAt;
+        return sp && (!b || static_cast<LONG>(sp - b) > 0);
+    }
+
+    // Once a second: where the speeder's chart is now, since a load serves it
+    // again.
+    void AskSpeeder(DWORD now)
+    {
+        const LONG asked = g_speederAsked;
+        if (asked && now - static_cast<DWORD>(asked) < 1000) return;
+        if (InterlockedCompareExchange(&g_speederAsked, static_cast<LONG>(now | 1), asked) != asked) return;
+        if (!g_speederChart)
+        {
+            const HMODULE m = GetModuleHandleW(L"SpeederBike.asi");
+            if (!m) return;
+            g_speederChart = reinterpret_cast<FnSpeederChart>(GetProcAddress(m, "SpeederBikeRideOnChart"));
+            if (!g_speederChart) return;
+        }
+        uintptr_t b = 0;
+        uint32_t n = 0;
+        if (!g_speederChart(&b, &n) || b == g_speederBase) return;
+        g_speederSize = n;
+        g_speederBase = b;
+        LOG("[rider] the speeder's riding chart is at %p (%u bytes), so Broomy knows when Kliff is on the speeder.",
+            reinterpret_cast<void*>(b), n);
+    }
+
+    // Notes each check of a mount's chart outside its ground idle.
+    void Track(uintptr_t pre)
+    {
+        AskSpeeder(GetTickCount());
+        int chart = -1;
+        uintptr_t base = 0;
+        if (In(pre, g_rideOnBase, g_rideOnSize)) chart = 0, base = g_rideOnBase;
+        else if (In(pre, g_speederBase, g_speederSize)) chart = 1, base = g_speederBase;
+        if (chart < 0) return;
+        const uint32_t off = static_cast<uint32_t>(pre - base);
+        if (Idle(off)) return;
+        InterlockedExchange(chart == 0 ? &g_broomMovedAt : &g_speederMovedAt, static_cast<LONG>(GetTickCount() | 1));
+        const LONG on = OnSpeeder() ? 1 : 0;
+        if (InterlockedExchange(&g_onSpeederLogged, on) != on)
+            LOG(on ? "[rider] the speeder's chart left its idle (+0x%X) after Broomy's last did, so Kliff is on the speeder."
+                   : "[rider] Broomy's chart left its idle (+0x%X) after the speeder's last did, so Kliff is on Broomy.",
+                off);
     }
 
     uint64_t CheckDetour(uintptr_t comp, uint32_t* err, uintptr_t layer, uintptr_t a4, uintptr_t a5, uintptr_t a6,
@@ -149,11 +239,18 @@ namespace
         uintptr_t pre = 0;
         if (a8 && bm::mem::ReadPtr(a8, &pre))
         {
-            if (In(pre, g_rideOnBase, g_rideOnSize)) InterlockedExchange(&g_rideOnAt, static_cast<LONG>(GetTickCount()));
-            else if (In(pre, g_lowerBase, g_lowerSize))
+            Track(pre);
+            const bool mine = In(pre, g_rideOnBase, g_rideOnSize);
+            if (mine) InterlockedExchange(&g_rideOnAt, static_cast<LONG>(GetTickCount()));
+            // Broomy's own chart and the speeder's are checked every frame;
+            // Kliff's lower chart can go unchecked for seconds, and on the
+            // speeder after Broomy it went unchecked from the moment he sat
+            // down, so the swap waited on it and was never let go (Broomy.log,
+            // 23 October 2026, 11:34:38 on).
+            if (mine || In(pre, g_speederBase, g_speederSize) || In(pre, g_lowerBase, g_lowerSize))
             {
                 const LONG at = g_rideOnAt;
-                const bool ridden = at && GetTickCount() - static_cast<DWORD>(at) < kRiddenMs;
+                const bool ridden = at && GetTickCount() - static_cast<DWORD>(at) < kRiddenMs && !OnSpeeder();
                 if (ridden != (g_swapped != 0)) SetSwap(ridden);
             }
         }
