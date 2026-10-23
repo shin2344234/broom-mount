@@ -53,7 +53,10 @@ game's "fainted") clears it too, but only after the game's own groggy test
 has said so, from a hook on that one call, because the test runs under a lock
 a detour cannot take. The game refuses that press, and the next one brings a
 fresh Broomy. A call that finds Broomy already out goes to the server twice,
-which brings it back with the arrival the Ride prompt waits for.
+which brings it back with the arrival the Ride prompt waits for. With Speeder
+Bike loaded, each mount's riding chart keeps running after its first ride, so
+Broomy's swap of Kliff's lower chart goes in only while Broomy's chart left its
+ground idle more recently than the speeder's, which SpeederBike.asi exports.
 
 The full account of how the mod was made, with the addresses, formats and
 everything that was tried and dropped, is in

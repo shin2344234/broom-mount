@@ -1,4 +1,4 @@
-# Broomy 1.0.5
+# Broomy 1.0.6
 
 For Crimson Desert 2.03.02, exe 1.0.0.2976.
 
@@ -49,6 +49,10 @@ After a faint the game lets you call Broomy again within a second, where it
 used to make you wait five minutes. If the game still says "Cannot summon
 because it's fainted" or "because it's dead", that press is refused, and the
 next one brings a fresh Broomy.
+
+With Speeder Bike installed and both mounts out, Kliff's riding pose follows
+the one he's sitting on, so getting off the speeder and onto Broomy no longer
+leaves him in the speeder's pose, or the other way round.
 
 On a controller the speed follows how far the left stick is pushed. The
 boost and the keyboard always move at full speed.
