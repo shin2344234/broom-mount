@@ -26,9 +26,10 @@ namespace
     // game used one of the two spellings' hashes, so both are checked. The
     // broom's aim gets kRate on every frame and skips the pull; every other
     // aim IK runs the shipped instructions.
-    constexpr uintptr_t kRva_Site = 0x12DB749;
-    constexpr uintptr_t kRva_Pull = 0x12DB753;
-    constexpr uintptr_t kRva_Solve = 0x12DB793;
+    // The addresses above are 3392's. On 3424 the site is at +0x12DC839.
+    // Install finds the site by its bytes and the pull's head. The pull
+    // follows the jbe, and the solve is the jbe's target.
+    constexpr char kSig_Site[] = "C5 F0 57 C9 C5 F8 2F F9 76 ?? C4 41 78 2F C2";
     constexpr unsigned char kSite[] = { 0xC5, 0xF0, 0x57, 0xC9, 0xC5, 0xF8, 0x2F, 0xF9, 0x76, 0x40 };
     constexpr unsigned char kPullHead[] = { 0xC4, 0x41, 0x78, 0x2F, 0xC2 };
     constexpr float kRate = 1.0f;   // per second: a 90 degree swing is 90 percent done in 2.3 s
@@ -45,14 +46,19 @@ namespace bm::aimrate
 {
     bool Install()
     {
-        const uintptr_t base = bm::mem::Game().base;
+        size_t hits = 0;
+        const uintptr_t site = bm::mem::FindUnique(kSig_Site, &hits);
         unsigned char pull[sizeof kPullHead] = {};
-        if (!bm::mem::ReadBytes(base + kRva_Pull, pull, sizeof pull) || memcmp(pull, kPullHead, sizeof pull) != 0)
+        unsigned char jbe[2] = {};
+        if (!site || !bm::mem::ReadBytes(site + 10, pull, sizeof pull) || memcmp(pull, kPullHead, sizeof pull) != 0 ||
+            !bm::mem::ReadBytes(site + 8, jbe, sizeof jbe) || jbe[0] != 0x76 || jbe[1] >= 0x80)
         {
-            LOG_ERR("[aim] the aim IK's rate code is not at +0x%llX on this exe, so the broom turns to the camera at "
-                    "the game's speed.", static_cast<unsigned long long>(kRva_Pull));
+            LOG_ERR("[aim] the aim IK's rate code is not on this exe (%zu matches), so the broom turns to the camera "
+                    "at the game's speed.", hits);
             return false;
         }
+        const uintptr_t pullAt = site + 10;
+        const uintptr_t solveAt = site + 10 + jbe[1];
         const uint32_t body = bm::hash::Little("b_body_00");
         const uint32_t bodyAsWritten = bm::hash::Little("B_Body_00");
         uint32_t rate;
@@ -75,16 +81,16 @@ namespace bm::aimrate
         // broom: the rate is kRate, and the pull is skipped.
         c[n++] = 0xB8; memcpy(c + n, &rate, 4); n += 4;                      // mov     eax, kRate
         c[n++] = 0xC5; c[n++] = 0x79; c[n++] = 0x6E; c[n++] = 0xC0;          // vmovd   xmm8, eax
-        n += AbsJump(c + n, base + kRva_Solve);
+        n += AbsJump(c + n, solveAt);
         // other: the shipped instructions.
         c[jneAt] = static_cast<unsigned char>(n - (jneAt + 1));
         c[n++] = 0xC5; c[n++] = 0xF8; c[n++] = 0x2F; c[n++] = 0xF9;          // vcomiss xmm7, xmm1
         c[n++] = 0x76; c[n++] = 14;                                         // jbe     solve
-        n += AbsJump(c + n, base + kRva_Pull);
-        n += AbsJump(c + n, base + kRva_Solve);
+        n += AbsJump(c + n, pullAt);
+        n += AbsJump(c + n, solveAt);
 
         char why[160] = {};
-        if (!bm::farhook::InstallBranch("aim rate", base + kRva_Site, kSite, sizeof kSite, c, n, nullptr, why,
+        if (!bm::farhook::InstallBranch("aim rate", site, kSite, sizeof kSite, c, n, nullptr, why,
                                         sizeof why))
         {
             LOG_ERR("[aim] could not patch the aim IK's rate: %s", why);

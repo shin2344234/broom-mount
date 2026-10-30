@@ -15,9 +15,8 @@ namespace
     // argument a pointer whose first field is the branch record). The error
     // is 0 when the branch may be taken. The record's target action hash is
     // at +0x14.
-    constexpr uintptr_t kRva_BranchCheck = 0x25152D0;
-    constexpr uint8_t kBranchCheckHead[] = { 0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x10, 0x4C, 0x89, 0x48, 0x20, 0x44,
-                                             0x88, 0x40, 0x18, 0x48, 0x89, 0x48, 0x08 };
+    // It is found by its head: +0x25152D0 on 3392, +0x2516560 on 3424.
+    constexpr char kSig_BranchCheck[] = "48 8B C4 48 89 58 10 4C 89 48 20 44 88 40 18 48 89 48 08";
 
     typedef uint64_t (*FnCheck)(uintptr_t, uint32_t*, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t,
                                 uintptr_t, uintptr_t, uintptr_t, uintptr_t);
@@ -333,11 +332,11 @@ namespace bm::riderfix
     bool Install(bool logStates)
     {
         g_log = logStates;
-        const uintptr_t at = bm::mem::Game().base + kRva_BranchCheck;
-        uint8_t head[sizeof kBranchCheckHead] = {};
-        if (!bm::mem::ReadBytes(at, head, sizeof head) || memcmp(head, kBranchCheckHead, sizeof head) != 0)
+        size_t hits = 0;
+        const uintptr_t at = bm::mem::FindUnique(kSig_BranchCheck, &hits);
+        if (!at)
         {
-            LOG_ERR("[rider] the branch check is not at +0x%llX on this exe.", static_cast<unsigned long long>(kRva_BranchCheck));
+            LOG_ERR("[rider] the branch check is not on this exe (%zu matches).", hits);
             return false;
         }
         char why[160] = {};
