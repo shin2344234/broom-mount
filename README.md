@@ -9,7 +9,7 @@ the broom and for Kliff, and a `Broom_Ride` interaction, all unused. The
 plugin wires them up as Broomy, a mount of its own in the saddle wedge of the
 Character radial. The Wyvern and every other mount stay as they are.
 
-Target: Crimson Desert's DLC build (exe 1.0.0.3392, Steam build 26308950).
+Target: Crimson Desert exe 1.0.0.3424 (Steam build 26317560), the patch of 30 October 2026.
 Players should read `mod/README.md`, which ships with the plugin and covers
 installing, settings and the known limits.
 
@@ -63,7 +63,10 @@ state more recently than the speeder's, whose address SpeederBike.asi exports.
 A branch counts as a change only when the game lets it through to a state the
 chart was not already in, other than the ground idle, because on the DLC
 build a parked speeder rests in a flight state and checks its way back to
-the ground idle every frame.
+the ground idle every frame. Getting on is the exception. Every mount action
+ends in the ground idle, and the game checks that branch on each frame of the
+2.1 s mount but lets it through only at the end, so any check of it counts for
+the chart Kliff is getting on, from the first frame.
 
 The full account of how the mod was made, with the addresses, formats and
 everything that was tried and dropped, is in

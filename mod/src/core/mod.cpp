@@ -164,7 +164,7 @@ namespace
     {
         WriteDefaultIni();
         const bool give = ReadSetting(L"GiveBroomy", 1) != 0;
-        LOG("[mod] %s %s for Crimson Desert exe 1.0.0.3392. GiveBroomy=%d", BM_NAME, BM_VERSION,
+        LOG("[mod] %s %s for Crimson Desert exe 1.0.0.3424. GiveBroomy=%d", BM_NAME, BM_VERSION,
             give ? 1 : 0);
         if (!g_serving)
             LOG_ERR("[mod] Broomy's files are not being served (see the [files] line above), so Broomy does not exist "
