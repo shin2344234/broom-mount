@@ -152,6 +152,18 @@ namespace
     // checks its way back to the ground idle every frame, so both charts
     // counted as moving and Broomy and the speeder each took Kliff in turn
     // every frame: the speeder's engine ran on Broomy (Seth, 29 October).
+    // Getting on is the exception. A mount action ends in the ground idle,
+    // so getting on and staying on the ground changed no mount's state, and
+    // the speeder ridden before still counted as Kliff's until Broomy took
+    // off. Getting on Broomy within 3 s of leaving the speeder, while the
+    // speeder's chart was still checked, started its engine on Broomy, and
+    // Broomy's swap waited on the speeder's (Seth, 30 October; Broomy.log
+    // 08:24:35, no "Kliff is on" line until the takeoff at 08:26:15). The
+    // mount actions' branch to the ground idle gives the rider 082F0420
+    // (+0x18), and on 3392 only the chart Kliff got on passed it, every
+    // frame of the mount (Broomy.06.log, +0xC3D1); a parked chart passes
+    // +0xBF39 instead. So passing a branch to the ground idle with that
+    // rider action counts as a change of state, though it is no change.
     // SpeederBike.asi says where its chart is (SpeederBikeRideOnChart).
     typedef int (*FnSpeederChart)(uintptr_t* base, uint32_t* size);
     FnSpeederChart g_speederChart = nullptr;
@@ -163,6 +175,7 @@ namespace
     // The state each chart last went to: Broomy's, the speeder's.
     volatile LONG g_state[2] = {};
     constexpr uint32_t kGroundIdle = 0xF5150415;
+    constexpr uint32_t kMountedRider = 0x082F0420;
 
     bool OnSpeeder()
     {
@@ -203,20 +216,23 @@ namespace
         if (In(pre, g_rideOnBase, g_rideOnSize)) chart = 0, base = g_rideOnBase;
         else if (In(pre, g_speederBase, g_speederSize)) chart = 1, base = g_speederBase;
         if (chart < 0) return;
-        uint32_t target = 0;
+        uint32_t target = 0, rider = 0;
         if (!bm::mem::Read32(pre + 0x14, &target) || !target) return;
-        if (static_cast<uint32_t>(InterlockedExchange(&g_state[chart], static_cast<LONG>(target))) == target) return;
+        const bool mounted = target == kGroundIdle && bm::mem::Read32(pre + 0x18, &rider) && rider == kMountedRider;
+        if (static_cast<uint32_t>(InterlockedExchange(&g_state[chart], static_cast<LONG>(target))) == target &&
+            !mounted)
+            return;
         // Settling into the ground idle is what a mount left alone does, so
-        // it says nothing about the rider.
-        if (target == kGroundIdle) return;
+        // it says nothing about the rider. Getting on ends there too.
+        if (target == kGroundIdle && !mounted) return;
         InterlockedExchange(chart == 0 ? &g_broomMovedAt : &g_speederMovedAt, static_cast<LONG>(GetTickCount() | 1));
         const LONG on = OnSpeeder() ? 1 : 0;
         if (InterlockedExchange(&g_onSpeederLogged, on) != on)
-            LOG(on ? "[rider] the speeder's chart went to %08X (+0x%X) after Broomy's last changed state, so Kliff is on "
-                     "the speeder."
-                   : "[rider] Broomy's chart went to %08X (+0x%X) after the speeder's last changed state, so Kliff is on "
-                     "Broomy.",
-                target, static_cast<uint32_t>(pre - base));
+            LOG(on ? "[rider] the speeder's chart went to %08X (+0x%X%s) after Broomy's last changed state, so Kliff is "
+                     "on the speeder."
+                   : "[rider] Broomy's chart went to %08X (+0x%X%s) after the speeder's last changed state, so Kliff is "
+                     "on Broomy.",
+                target, static_cast<uint32_t>(pre - base), mounted ? ", getting on" : "");
     }
 
     uint64_t CheckDetour(uintptr_t comp, uint32_t* err, uintptr_t layer, uintptr_t a4, uintptr_t a5, uintptr_t a6,
