@@ -9,7 +9,7 @@ the broom and for Kliff, and a `Broom_Ride` interaction, all unused. The
 plugin wires them up as Broomy, a mount of its own in the saddle wedge of the
 Character radial. The Wyvern and every other mount stay as they are.
 
-Target: Crimson Desert exe 1.0.0.3424 (Steam build 26317560), the patch of 30 October 2026.
+Target: Crimson Desert exe 1.0.0.3446 (Steam build 26329202), the second patch of 30 October 2026.
 Players should read `mod/README.md`, which ships with the plugin and covers
 installing, settings and the known limits.
 

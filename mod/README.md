@@ -1,6 +1,6 @@
-# Broomy 1.0.8
+# Broomy 1.0.9
 
-For Crimson Desert exe 1.0.0.3424 (Steam build 26317560), the patch of 30 October 2026.
+For Crimson Desert exe 1.0.0.3446 (Steam build 26329202), the second patch of 30 October 2026.
 
 Pearl Abyss built a flying broom mount and never switched it on. The model,
 its skeleton and its animations are all in the game's archives. This plugin
@@ -53,8 +53,8 @@ next one brings a fresh Broomy.
 With Speeder Bike installed and both mounts out, Kliff's riding pose follows
 the one he's sitting on, so getting off the speeder and onto Broomy no longer
 leaves him in the speeder's pose, or the other way round. The speeder's
-engine stays off while he gets on Broomy and rides it, which also takes
-Speeder Bike's release for exe 1.0.0.3424.
+engine stays off while he gets on Broomy and rides it, with Speeder Bike
+1.0.5 or later.
 
 On a controller the speed follows how far the left stick is pushed. The
 boost and the keyboard always move at full speed.
