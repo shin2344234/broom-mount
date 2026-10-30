@@ -37,7 +37,10 @@ edit. Everything Broomy needs that the game doesn't ship comes from memory:
   bounty's lying clip is placed from it. Mounting with a bounty on the
   shoulder runs copies of the broom's mount and dismount that keep the
   carry, and an idle that holds him there in flight.
-- A map icon drawn with the game's broom item icon.
+- A map icon drawn with the game's broom item icon. On the DLC build the map
+  reads its icons from compiled markup in `ui/bin__`, so the plugin adds
+  Broomy's to the minimap and world map `.uibinary` files as well as to the
+  `.thtml` and `.css` ones.
 
 A few seconds after a save loads, the plugin checks the roster. A save
 without Broomy gets one by hiring a wild horse under Broomy's character row
@@ -55,8 +58,12 @@ a detour cannot take. The game refuses that press, and the next one brings a
 fresh Broomy. A call that finds Broomy already out goes to the server twice,
 which brings it back with the arrival the Ride prompt waits for. With Speeder
 Bike loaded, each mount's riding chart keeps running after its first ride, so
-Broomy's swap of Kliff's lower chart goes in only while Broomy's chart left its
-ground idle more recently than the speeder's, which SpeederBike.asi exports.
+Broomy's swap of Kliff's lower chart goes in only while Broomy's chart changed
+state more recently than the speeder's, whose address SpeederBike.asi exports.
+A branch counts as a change only when the game lets it through to a state the
+chart was not already in, other than the ground idle, because on the DLC
+build a parked speeder rests in a flight state and checks its way back to
+the ground idle every frame.
 
 The full account of how the mod was made, with the addresses, formats and
 everything that was tried and dropped, is in

@@ -1,4 +1,4 @@
-# Broomy 1.0.6
+# Broomy 1.0.7
 
 For Crimson Desert's DLC build, exe 1.0.0.3392 (Steam build 26308950).
 
