@@ -385,11 +385,11 @@ namespace
     }
 
     // The grant hires on the server's own thread, from the handler of the
-    // client's movement request (0x0B0C), which the server runs about 37
+    // client's movement request (0x0B24), which the server runs about 37
     // times a second on the thread that also runs the mount call. It calls
-    // the server's hire as the hire request's own handler (+0x2A2F160) does:
+    // the server's hire as the hire request's own handler (+0x2CACA50) does:
     // (the sender's clan component, u32* error, u32* actor id, 0, 0), and
-    // HireDetour does the rest. Sending the hire request (0x0B8F) instead
+    // HireDetour does the rest. Sending the hire request (kReq_HireToTarget) instead
     // worked only for a horse beside the player: the server dropped the
     // request for any other before its handler ran (2 October, after a
     // save was loaded from inside the game).
@@ -456,18 +456,18 @@ namespace
                         uintptr_t a6, uintptr_t a7)
     {
         uint16_t id = 0;
-        if (message && bm::mem::Read16(message, &id) && (id == 0x0AC1 || id == 0x0876))
+        if (message && bm::mem::Read16(message, &id) && (id == kReq_WedgeChoice || id == kReq_MountCall))
         {
-            if (id == 0x0AC1)
+            if (id == kReq_WedgeChoice)
             {
                 uint32_t slot = 0;
                 bm::mem::Read32(message + 5, &slot);
-                LOG("[wedge] request 0x0AC1 sent (a wedge was chosen: reserve slot %u).", slot);
+                LOG("[wedge] request 0x%04X sent (a wedge was chosen: reserve slot %u).", kReq_WedgeChoice, slot);
             }
             else
-                LOG("[wedge] request 0x0876 sent (the mount is called%s).",
+                LOG("[wedge] request 0x%04X sent (the mount is called%s).", kReq_MountCall,
                     bm::callgate::BroomyChosen() ? ": the saddle wedge holds Broomy" : "");
-            if (id == 0x0876 && bm::callgate::BroomyChosen())
+            if (id == kReq_MountCall && bm::callgate::BroomyChosen())
             {
                 // Each call watches afresh: Broomy's actor is new every time.
                 InterlockedExchange64(&g_broomyActor, 0);
@@ -484,7 +484,7 @@ namespace
             const LONG out = g_outAtCall;
             const LONG age = static_cast<LONG>(GetTickCount() - static_cast<DWORD>(out));
             const size_t bytes = static_cast<size_t>(length & 0xFFFF);
-            if (id == 0x0876 && out && age < static_cast<LONG>(kOutAtCallMs) &&
+            if (id == kReq_MountCall && out && age < static_cast<LONG>(kOutAtCallMs) &&
                 InterlockedCompareExchange(&g_outAtCall, 0, out) == out && bytes <= sizeof g_callCopy &&
                 bm::mem::ReadBytes(message, g_callCopy, bytes))
             {
@@ -642,8 +642,8 @@ namespace
     // Broomy for the call. With Speeder Bike installed both hook this call;
     // each one's detour passes any other row through. Only the dead bytes
     // count, which the game itself reads unlocked. Its groggy test
-    // (+0x1794ED0) runs under a reader lock on [[status+8]+8] that a detour
-    // here does not hold, and +0x320 reads 2 at every call of a Broomy that
+    // (+0x18C57E0) runs under a reader lock on [[status+8]+8] that a detour
+    // here does not hold, and the groggy count reads 2 at every call of a Broomy that
     // is up, so calling it would race on every call; a wrong "groggy" would
     // clear the roster entry of a Broomy still out (review, 21 October). A
     // groggy Broomy is handled by GroggyDetour below, which sits on the game's
@@ -680,13 +680,13 @@ namespace
             *reinterpret_cast<uint8_t*>(res + kOff_Lookup_Found) = 0;
             *reinterpret_cast<uintptr_t*>(res + kOff_Lookup_Actor) = 0;
             LOG("[faint] Broomy (actor %08X) fainted at the last call and its roster entry is cleared, so this "
-                "call brings a fresh Broomy (+0x272 %u, +0x273 %u, +0x320 %d).",
+                "call brings a fresh Broomy (dead %u %u, groggy %d).",
                 static_cast<uint32_t>(id), deadA, deadB, static_cast<int32_t>(groggy));
             return r;
         }
         if (!deadA && !deadB)
         {
-            LOG("[faint] Broomy (actor %08X) is up at the call (+0x272 %u, +0x273 %u, +0x320 %d).",
+            LOG("[faint] Broomy (actor %08X) is up at the call (dead %u %u, groggy %d).",
                 static_cast<uint32_t>(id), deadA, deadB, static_cast<int32_t>(groggy));
             InterlockedExchange(&g_outAtCall, static_cast<LONG>(GetTickCount() | 1));
             InterlockedExchange64(&g_lookedStatus, static_cast<LONG64>(status));
@@ -697,7 +697,7 @@ namespace
         const bool stored = g_seenCount && StoreBroomy(g_seen[0].clan, static_cast<uint32_t>(id));
         if (!stored)
         {
-            LOG_ERR("[faint] Broomy (actor %08X) is down at the call (+0x272 %u, +0x273 %u, +0x320 %d), but its "
+            LOG_ERR("[faint] Broomy (actor %08X) is down at the call (dead %u %u, groggy %d), but its "
                     "roster entry was not found to clear, so the game refuses the call.",
                     static_cast<uint32_t>(id), deadA, deadB, static_cast<int32_t>(groggy));
             return r;
@@ -706,7 +706,7 @@ namespace
         // The result is the check's own stack object.
         *reinterpret_cast<uint8_t*>(res + kOff_Lookup_Found) = 0;
         *reinterpret_cast<uintptr_t*>(res + kOff_Lookup_Actor) = 0;
-        LOG("[faint] Broomy (actor %08X) is down at the call (+0x272 %u, +0x273 %u, +0x320 %d); its roster entry "
+        LOG("[faint] Broomy (actor %08X) is down at the call (dead %u %u, groggy %d); its roster entry "
             "is cleared, so the call brings a fresh one.",
             static_cast<uint32_t>(id), deadA, deadB, static_cast<int32_t>(groggy));
         return r;
@@ -749,11 +749,11 @@ namespace
         {
             InterlockedExchange(&g_clearedId, static_cast<LONG>(id));
             InterlockedExchange(&g_clearedAt, static_cast<LONG>(GetTickCount() | 1));
-            LOG("[faint] Broomy (actor %08X) is groggy at the call (+0x320 %d); its roster entry is cleared. The game "
+            LOG("[faint] Broomy (actor %08X) is groggy at the call (groggy %d); its roster entry is cleared. The game "
                 "refuses this call, and the next one brings a fresh Broomy.", id, static_cast<int32_t>(groggyValue));
         }
         else
-            LOG_ERR("[faint] Broomy (actor %08X) is groggy at the call (+0x320 %d), but its roster entry was not found "
+            LOG_ERR("[faint] Broomy (actor %08X) is groggy at the call (groggy %d), but its roster entry was not found "
                     "to clear, so it waits as the game says.", id, static_cast<int32_t>(groggyValue));
         return groggy;
     }

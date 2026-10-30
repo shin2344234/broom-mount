@@ -42,16 +42,26 @@ namespace bm::broomrows
     inline constexpr const char* kPortraitRegistry = "ui/xml/texture/cd_image_portrait_00.xml";
     // The map's markup and styles, by the end of their path: Broomy's map
     // icon is a component of each markup file and a class of each style
-    // sheet. Markup first.
-    inline constexpr const char* kMapIconFiles[] = { "/minimapicon.thtml", "/worldmapicon.thtml", "/minimapicon.css",
-                                                     "/worldmapicon.css" };
+    // sheet. Markup first, then the styles, then the markup as 3392 compiles
+    // it, which is what the map builds its icons from (1.0.7-test4).
+    inline constexpr const char* kMapIconFiles[] = { "/minimapicon.thtml",
+                                                     "/worldmapicon.thtml",
+                                                     "/minimapicon.css",
+                                                     "/worldmapicon.css",
+                                                     "/minimapicon_game.uibinary",
+                                                     "/minimapicon_component_game.uibinary",
+                                                     "/worldmapicon_game.uibinary",
+                                                     "/worldmapicon_component_game.uibinary" };
+    inline constexpr int kMapBinaryFirst = 4;
     // Each language's character names; the game reads one.
     inline constexpr const char* kPalocLeaf = "/character.paloc";
     // Every skeleton's pose modifiers (aim IK, foot IK, vehicle tilt and so
-    // on), keyed by skeleton file name. The game lists the folder and reads
-    // this, its one file, through Read.
+    // on), keyed by skeleton file name. The game lists the folder, reads each
+    // *.xml in it through Read and applies them all. On 3392 the list is in
+    // posemodifierdata_common.xml (135666 bytes); posemodifierdata.xml is a
+    // 67-byte stub that holds no list.
     inline constexpr const char* kPoseModifierPath =
-        "character/descriptors/posemodifierdata/posemodifierdata.xml";
+        "character/descriptors/posemodifierdata/posemodifierdata_common.xml";
 
     // Whether Broomy's row names its own charts (GoldStar's, served as the
     // broom's) or the Wyvern's. Own unless the plugin cannot redirect the
@@ -91,6 +101,10 @@ namespace bm::broomrows
     // style sheet with its classes, copies of the hired ibex's drawn with
     // the broom item's map icon.
     bool BuildMapIcons(bool markup, const std::string& game, std::string& out, std::string& why);
+    // A compiled map markup file (ui/bin__/*.uibinary, new on 3392) with
+    // Broomy's component: the hired ibex's record copied after it with its
+    // AlpineIbex strings renamed, and the component count raised by one.
+    bool BuildMapBinary(const std::string& game, std::string& out, std::string& why);
     // The pose modifier list with an aim IK for the broom's skeleton: its
     // body bone turns toward where the player aims, as the Wyvern's neck
     // does. The Wyvern's riding charts already switch aim IK on in flight.

@@ -39,8 +39,8 @@ namespace
                                  uintptr_t a6, uintptr_t a7, uintptr_t a8, uintptr_t a9, uintptr_t a10, uintptr_t a11,
                                  uintptr_t a12);
 
-    // Find (slot 3) picks the pack source for a path; exists (slot 13) asks
-    // whether one has it.
+    // Find (slot 3) picks the pack source for a path; exists (slot 14) asks
+    // whether one has it, and index-of (slot 13) which one does.
     typedef uintptr_t (*FnFind)(uintptr_t loader, uintptr_t out, uintptr_t path, uintptr_t flags);
     typedef uint64_t (*FnExists)(uintptr_t loader, uintptr_t path);
 
@@ -48,6 +48,7 @@ namespace
     FnAsync          g_asyncOriginal = nullptr;
     FnFind           g_findOriginal = nullptr;
     FnExists         g_existsOriginal = nullptr;
+    FnExists         g_indexOfOriginal = nullptr;
     FnMakePath       g_makePath = nullptr;
     FnReleasePath    g_releasePath = nullptr;
     FnAlloc          g_allocSet = nullptr, g_allocClear = nullptr;
@@ -79,13 +80,13 @@ namespace
     // The loader of the read Serve is looking at, for ReadFile.
     thread_local uintptr_t t_loader = 0;
 
-    // The game picks one of two allocators by a byte in its thread block, and
-    // frees with the matching one.
+    // The game picks one of two allocators by a byte in its thread block
+    // (+0x1FE; +0x1FD on 2976), and frees with the matching one.
     bool AllocatorFlag()
     {
         const uintptr_t slots = __readgsqword(0x58);
         const uintptr_t block = slots ? *reinterpret_cast<uintptr_t*>(slots) : 0;
-        return block && *reinterpret_cast<uint8_t*>(block + 0x1FD) != 0;
+        return block && *reinterpret_cast<uint8_t*>(block + 0x1FE) != 0;
     }
 
     // The game's buffer, now holding `bytes`, in the game's own allocation.
@@ -291,6 +292,12 @@ namespace
         return g_existsOriginal(loader, s.Path(path));
     }
 
+    uint64_t IndexOfDetour(uintptr_t loader, uintptr_t path)
+    {
+        Swapped s(path, "index");
+        return g_indexOfOriginal(loader, s.Path(path));
+    }
+
     uintptr_t CallTarget(uintptr_t call)
     {
         uint8_t op = 0;
@@ -378,16 +385,21 @@ namespace bm::gamefile
         }
         const uintptr_t find = mem::FindUnique(kSig_LoaderFindSource);
         const uintptr_t exists = mem::FindUnique(kSig_LoaderExists);
-        char why4[96] = "not found", why5[96] = "not found";
+        const uintptr_t indexOf = mem::FindUnique(kSig_LoaderIndexOf);
+        char why4[96] = "not found", why5[96] = "not found", why6[96] = "not found";
         const bool f = find && farhook::Install("loader find", find, reinterpret_cast<void*>(&FindDetour),
                                                 reinterpret_cast<void**>(&g_findOriginal), why4, sizeof why4);
         const bool e = exists && farhook::Install("loader exists", exists, reinterpret_cast<void*>(&ExistsDetour),
                                                   reinterpret_cast<void**>(&g_existsOriginal), why5, sizeof why5);
-        if (f && e)
-            LOG("[files] finds and existence checks redirected too, +0x%llX and +0x%llX.",
-                static_cast<unsigned long long>(mem::Rva(find)), static_cast<unsigned long long>(mem::Rva(exists)));
+        const bool x = indexOf && farhook::Install("loader index of", indexOf, reinterpret_cast<void*>(&IndexOfDetour),
+                                                   reinterpret_cast<void**>(&g_indexOfOriginal), why6, sizeof why6);
+        if (f && e && x)
+            LOG("[files] finds and existence checks redirected too, +0x%llX, +0x%llX and +0x%llX.",
+                static_cast<unsigned long long>(mem::Rva(find)), static_cast<unsigned long long>(mem::Rva(exists)),
+                static_cast<unsigned long long>(mem::Rva(indexOf)));
         else
-            LOG_ERR("[files] find (%s) or exists (%s) could not be hooked.", f ? "hooked" : why4, e ? "hooked" : why5);
+            LOG_ERR("[files] find (%s), exists (%s) or index of (%s) could not be hooked.", f ? "hooked" : why4,
+                    e ? "hooked" : why5, x ? "hooked" : why6);
         return true;
     }
 

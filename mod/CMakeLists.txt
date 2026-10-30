@@ -63,6 +63,8 @@ add_library(Broomy SHARED
     src/game/callgate.cpp
     src/game/equipfix.cpp
     src/game/riderfix.cpp
+    src/game/riderfind.cpp
+    src/game/chartwalk.cpp
     src/game/aimrate.cpp
     src/game/leanblend.cpp
     src/resources.rc
@@ -107,6 +109,19 @@ add_executable(chartcheck EXCLUDE_FROM_ALL
 target_include_directories(chartcheck PRIVATE src)
 target_compile_definitions(chartcheck PRIVATE _CRT_SECURE_NO_WARNINGS)
 target_compile_options(chartcheck PRIVATE /utf-8 /W3)
+
+# riderfix's search for the words it edits, against what
+# private/research/newmount/riderfix_offsets.py found: build.bat riderfind
+# CHARTS SPLICED.
+add_executable(riderfind EXCLUDE_FROM_ALL
+    tests/riderfind.cpp
+    src/game/riderfind.cpp
+    src/game/chartwalk.cpp
+    src/game/tablefile.cpp
+)
+target_include_directories(riderfind PRIVATE src tests)
+target_compile_definitions(riderfind PRIVATE _CRT_SECURE_NO_WARNINGS)
+target_compile_options(riderfind PRIVATE /utf-8 /W3)
 
 add_custom_command(TARGET Broomy POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/dist"

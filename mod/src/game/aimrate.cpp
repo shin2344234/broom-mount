@@ -11,25 +11,26 @@
 
 namespace
 {
-    // In the AimIK apply (+0x1119B60), with rdi the modifier, xmm7 the target
-    // distance and xmm8 the smoothing rate (the event's, read from [rdi+0x84]
-    // and reset there to -1 at once, or 10 when it holds nothing):
-    //   +0x111A0C5  vxorps  xmm1, xmm1, xmm1
-    //   +0x111A0C9  vcomiss xmm7, xmm1
-    //   +0x111A0CD  jbe     +0x111A10F        ; no distance: rate stays as it is
-    //   +0x111A0CF  vcomiss xmm8, xmm9        ; ... rate += min(|lag|, 8) / 8 * (4 - rate)
-    //   +0x111A10F  mov     r9, r14           ; the solve, which smooths at rate xmm8
-    // [rdi+0x60] is the hash of the aim's reference bone (looked up at
-    // +0x1119DB7). For the broom it is B_Body_00, which ikpatches.h puts in
+    // In the AimIK apply, with rdi the modifier, xmm7 the target distance
+    // and xmm8 the smoothing rate (the event's, read from [rdi+0x84] and
+    // reset there to -1 at once, or 10 when it holds nothing):
+    //   +0x12DB749  vxorps  xmm1, xmm1, xmm1
+    //   +0x12DB74D  vcomiss xmm7, xmm1
+    //   +0x12DB751  jbe     +0x12DB793        ; no distance: rate stays as it is
+    //   +0x12DB753  vcomiss xmm8, xmm10       ; ... rate += min(|lag|, 8) / 8 * (4 - rate)
+    //   +0x12DB793  mov     r9, rbp           ; the solve, which smooths at rate xmm8
+    // (2976: +0x111A0C5, the pull `vcomiss xmm8, xmm9` and the solve
+    // `mov r9, r14` at +0x111A10F.) [rdi+0x60] is the hash of the aim's
+    // reference bone (looked up at +0x12DB461). For the broom it is B_Body_00, which ikpatches.h puts in
     // the RideOn and body charts in place of the Wyvern's B_IK_Head_00. The
     // game used one of the two spellings' hashes, so both are checked. The
     // broom's aim gets kRate on every frame and skips the pull; every other
     // aim IK runs the shipped instructions.
-    constexpr uintptr_t kRva_Site = 0x111A0C5;
-    constexpr uintptr_t kRva_Pull = 0x111A0CF;
-    constexpr uintptr_t kRva_Solve = 0x111A10F;
+    constexpr uintptr_t kRva_Site = 0x12DB749;
+    constexpr uintptr_t kRva_Pull = 0x12DB753;
+    constexpr uintptr_t kRva_Solve = 0x12DB793;
     constexpr unsigned char kSite[] = { 0xC5, 0xF0, 0x57, 0xC9, 0xC5, 0xF8, 0x2F, 0xF9, 0x76, 0x40 };
-    constexpr unsigned char kPullHead[] = { 0xC4, 0x41, 0x78, 0x2F, 0xC1 };
+    constexpr unsigned char kPullHead[] = { 0xC4, 0x41, 0x78, 0x2F, 0xC2 };
     constexpr float kRate = 1.0f;   // per second: a 90 degree swing is 90 percent done in 2.3 s
 
     unsigned AbsJump(unsigned char* p, uintptr_t to)

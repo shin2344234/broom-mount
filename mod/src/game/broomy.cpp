@@ -406,7 +406,7 @@ namespace
         if (const int m = MapIconOf(path, n); m >= 0)
         {
             if (!found) return false;
-            if (!BuildMapIcons(m < 2, game, out, why))
+            if (m >= kMapBinaryFirst ? !BuildMapBinary(game, out, why) : !BuildMapIcons(m < 2, game, out, why))
             {
                 LOG_ERR("[files] %s is the game's own, so Broomy shows the ibex's map icon: %s.", path, why.c_str());
                 return false;

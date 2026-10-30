@@ -5,10 +5,13 @@
 //   buildcheck IN OUT
 //
 // IN holds the shipped NAME.staticinfoheader and NAME.staticinfobody of
-// every table Broomy changes, character.paloc, mon_wyvern.xml and
-// cd_image_portrait_00.xml; OUT the same tables as the reference build writes
-// them, character.paloc.plain (the decompressed list), animal_seal.xml and
-// cd_image_portrait_00.xml. `build.bat check IN OUT` builds and runs it.
+// every table Broomy changes, character.paloc, mon_wyvern.xml,
+// cd_image_portrait_00.xml, the four map files (minimapicon.thtml and .css,
+// worldmapicon.thtml and .css) and posemodifierdata_common.xml; OUT the same
+// tables as the reference build writes them, character.paloc.plain (the
+// decompressed list), animal_seal.xml and the other files as built. The
+// reference is private\research\tables3392\build_ref.py, written apart from
+// the plugin. `build.bat check IN OUT` builds and runs it.
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -214,8 +217,26 @@ int main(int argc, char** argv)
         const char* out;
         bool (*build)(const std::string&, std::string&, std::string&);
     };
+    // The map files take a markup/style flag, which the table below cannot carry.
+    struct MapFile
+    {
+        static bool Markup(const std::string& g, std::string& o, std::string& w) { return bm::broomrows::BuildMapIcons(true, g, o, w); }
+        static bool Style(const std::string& g, std::string& o, std::string& w) { return bm::broomrows::BuildMapIcons(false, g, o, w); }
+    };
     const Single singles[] = { { "mon_wyvern.xml", "animal_seal.xml", &bm::broomrows::BuildDescription },
-                               { "cd_image_portrait_00.xml", "cd_image_portrait_00.xml", &bm::broomrows::BuildPortraits } };
+                               { "cd_image_portrait_00.xml", "cd_image_portrait_00.xml", &bm::broomrows::BuildPortraits },
+                               { "minimapicon.thtml", "minimapicon.thtml", &MapFile::Markup },
+                               { "worldmapicon.thtml", "worldmapicon.thtml", &MapFile::Markup },
+                               { "minimapicon.css", "minimapicon.css", &MapFile::Style },
+                               { "worldmapicon.css", "worldmapicon.css", &MapFile::Style },
+                               { "minimapicon_game.uibinary", "minimapicon_game.uibinary", &bm::broomrows::BuildMapBinary },
+                               { "minimapicon_component_game.uibinary", "minimapicon_component_game.uibinary",
+                                 &bm::broomrows::BuildMapBinary },
+                               { "worldmapicon_game.uibinary", "worldmapicon_game.uibinary", &bm::broomrows::BuildMapBinary },
+                               { "worldmapicon_component_game.uibinary", "worldmapicon_component_game.uibinary",
+                                 &bm::broomrows::BuildMapBinary },
+                               { "posemodifierdata_common.xml", "posemodifierdata_common.xml",
+                                 &bm::broomrows::BuildPoseModifiers } };
     for (const Single& s : singles)
     {
         std::string game, want, mine;

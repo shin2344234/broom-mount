@@ -1,6 +1,6 @@
 # Broomy 1.0.6
 
-For Crimson Desert 2.03.02, exe 1.0.0.2976.
+For Crimson Desert's DLC build, exe 1.0.0.3392 (Steam build 26308950).
 
 Pearl Abyss built a flying broom mount and never switched it on. The model,
 its skeleton and its animations are all in the game's archives. This plugin

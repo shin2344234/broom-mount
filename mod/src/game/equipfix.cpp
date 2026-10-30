@@ -11,14 +11,15 @@ namespace
 {
     constexpr const char* kSig_EquipCopy =
         "48 89 54 24 10 53 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 68 4C 8B F2 48 8B E9 4C 8B 61 08";
-    constexpr unsigned kOff_Slots = 0x90;     // the component's equipment list
+    constexpr unsigned kOff_Slots = 0xA0;     // the component's equipment list (0x90 on 2976)
     constexpr unsigned kOff_Entries = 0x08;
     constexpr unsigned kOff_Count = 0x10;
     constexpr unsigned kEntrySize = 0xD0;     // first u32 the item key
     constexpr uint32_t kNoItem = 0xFFFFFFFFu;
 
     // The same copy from a list straight into a given array, reached through
-    // the thunk at +0x20CEB90 from the server's mount call (+0x2BAEF5F):
+    // the thunk at +0x20CEB90 from the server's mount call (+0x2BAEF5F, both
+    // on 2976; the copy is +0xCCCF700 on 3392):
     // (list, array).
     constexpr const char* kSig_EquipCopyTo =
         "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 31 DB 48 89 D7 48 89 CE 39 5A 08 76 1C 0F 1F 40 00 "

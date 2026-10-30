@@ -4,10 +4,10 @@
 #include <cstring>
 
 #include "core/log.h"
-#include "game/damiane.h"
 #include "game/farhook.h"
 #include "game/gamefile.h"
 #include "game/mem.h"
+#include "game/riderfind.h"
 
 namespace
 {
@@ -15,7 +15,7 @@ namespace
     // argument a pointer whose first field is the branch record). The error
     // is 0 when the branch may be taken. The record's target action hash is
     // at +0x14.
-    constexpr uintptr_t kRva_BranchCheck = 0x232E3D0;
+    constexpr uintptr_t kRva_BranchCheck = 0x25152D0;
     constexpr uint8_t kBranchCheckHead[] = { 0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x10, 0x4C, 0x89, 0x48, 0x20, 0x44,
                                              0x88, 0x40, 0x18, 0x48, 0x89, 0x48, 0x08 };
 
@@ -49,68 +49,48 @@ namespace
     volatile LONG g_lines = 0;
     bool g_log = false;
 
-    // The rider fix: the two default branches of Kliff's lower dispatchers,
-    // by their offset in ride_test3_lower.paac, with the shipped word and the
-    // one they hold while Broomy is ridden. +0x14 is the target, +0x08 the
-    // crossfade in frames (f32). Shipped, the branches cut (-1) between two
-    // dragon poses that play the same clip; between the broom's ground and
-    // air states they crossfade over 10 frames, as Kliff's upper chart does.
-    struct Swap { uint32_t offset; uint32_t shipped; uint32_t broomy; };
-    constexpr uint32_t kCut = 0xBF800000, kTenFrames = 0x41200000;
-    constexpr Swap kSwaps[] = {
-        { 0x6F3F1 + 0x14, 0x07407E6A, 0x588C2001 },   // branch 397, ground states -> broom idle
-        { 0x6F3F1 + 0x08, kCut, kTenFrames },
-        // The air states also take the ground idle. AD3E621B is the same
-        // action in this chart (the same blend, the same branches), and
-        // switching to it at takeoff restarted the blend, a hitch.
-        { 0x6F48D + 0x14, 0x90337E5C, 0x588C2001 },   // branch 400, air states -> broom idle
-        { 0x6F48D + 0x08, kCut, kTenFrames },
-        // The push-off. Kliff's lower layer takes the mount's action key, so
-        // the broom's takeoff runs Kliff's 117F8F51, whose default slot 934
-        // shares branch 397 with seven other states. Slot 934 alone moves to
-        // branch 439, rewritten as 397 into FDA30B13 with a 3 frame fade.
-        // FDA30B13 is a spare Kliff action no branch or chart reaches; it
-        // plays the push-off under a name of its own,
-        // cd_phm_rd_broom_basic_00_00_nor_std_takeoff_00 (Seen below writes
-        // it into the chart, and broomclips.h has the files), and lasts the
-        // clip's 136 frames. Kliff's lower chart moves on only when a broom
-        // chart commands it, never on anim_end; the flight start commands it
-        // (crossfadepatches.h, b27), so the clip's round of broom idle after
-        // the 36 frame kick is only a margin. Slot 1036 points at branch 671
-        // in case the end is ever reached. Branch 439 had only slot 1036,
-        // FDA30B13 looping on itself. Seth, 3 October: "his feet touched the
-        // ground".
-        { 0x796B4, 0x00018D7F, 0x0001B77F },          // slot 934 (u16 at +1): branch 397 -> 439
-        { 0x6FC79 + 0x08, 0x3F800000, 0x40400000 },   // branch 439 crossfade 1 -> 3 frames (the feet land at frame 6)
-        { 0x6FC79 + 0x1C, 0x00000007, 0x00000204 },   // branch 439 kind, as 397
-        { 0x6FC79 + 0x24, 0x0000001D, 0x00000000 },   // branch 439 condition, as 397
-        { 0x6FC79 + 0x28, 0x00010000, 0x00000000 },
-        { 0x7A1DC, 0x0001B77F, 0x00029F7F },          // slot 1036 (u16 at +1): branch 439 -> 671
-        { 0x1D4D0, 0x3F19999A, 0x40911111 },          // FDA30B13 duration 0.6 s -> 4.53 s (136 frames)
-    };
+    // The rider fix: words of Kliff's lower chart, ride_test3_lower.paac,
+    // found by what they are as the chart loads (riderfind.cpp), so the same
+    // search works on the shipped chart and on the one with Damiane's nodes
+    // (broomy.cpp). Each has its shipped word and the one it holds while
+    // Broomy is ridden:
+    // - The two default branches of Kliff's lower dispatchers (412 and 415
+    //   on 3392) go to the broom idle with a 10 frame crossfade.
+    // - The push-off. Kliff's lower layer takes the mount's action key, so
+    //   the broom's takeoff runs Kliff's 117F8F51, whose default slot shares
+    //   the ground dispatcher's branch with seven other states. That slot
+    //   alone moves to FDA30B13's loop branch, rewritten as the ground
+    //   branch into FDA30B13 with a 3 frame fade. FDA30B13 is a spare Kliff
+    //   action no branch or chart reaches; it plays the push-off under a
+    //   name of its own, cd_phm_rd_broom_basic_00_00_nor_std_takeoff_00 (Seen
+    //   below writes it into the chart, and broomclips.h has the files), and
+    //   lasts the clip's 136 frames. Kliff's lower chart moves on only when
+    //   a broom chart commands it, never on anim_end; the flight start
+    //   commands it (crossfadepatches.h, b28), so the clip's round of broom
+    //   idle after the 36 frame kick is only a margin. FDA30B13's loop slot
+    //   points at the clip-end exit most states share, in case the end is
+    //   ever reached. Seth, 3 October: "his feet touched the ground".
     constexpr DWORD kRiddenMs = 3000;
-    constexpr uint32_t kPushOffAt = 0x31339;   // string 193, after its length byte (80)
     constexpr char kPushOffOld[] = "1_pc/1_phm/00_riding/cd_phm_rd_wyvern_basic_00_00_air_move_fall_walk_end_00.paa";
     constexpr char kPushOffNew[] = "1_pc/1_phm/00_riding/cd_phm_rd_broom_basic_00_00_nor_std_takeoff_00.paa";
     static_assert(sizeof kPushOffNew <= sizeof kPushOffOld, "the new name must fit the old one's room");
-    constexpr size_t kSwapCount = sizeof kSwaps / sizeof kSwaps[0];
+    using bm::riderfind::Swap;
+    constexpr int kSwapCount = bm::riderfind::kLowerSwaps;
 
     // Kliff's left hand IK. The node of 01B8F8D3 (the cut orca rider) fires
-    // frame event 777 at 0 s, type 0x65, which switches on the LimbIK's left
-    // hand (posemodifierdata.xml, limb "lefthand") aimed at the mount's
+    // a frame event at 0 s (type 0x67 on 3392; twice, events 909 and 922,
+    // under two conditions) that switches on the LimbIK's left hand
+    // (posemodifierdata.xml, limb "lefthand") aimed at the mount's
     // B_IK_L_Hand. The broom skeleton has no such bone, so on a broom-skeleton
     // mount his left fist goes to the seat at the front of his belt, whatever
     // either layer plays. Found on the Speeder Bike, which rides on this
-    // chart (5 October). The node's instance of the event fires at 1000 s
-    // instead, past the end of every clip, so it never fires; the event
-    // itself is shared by 77 states and stays as it is. No shipped mount
-    // reaches 01B8F8D3.
-    constexpr uint32_t kIkAt = 0x216BF;   // the instance record: time, time_end, event index
-    constexpr uint32_t kIkWords[] = { 0x00000000, 0xBF800000, 777 };
+    // chart (5 October). The node's instances of the events fire at 1000 s
+    // instead, past the end of every clip, so they never fire; the events
+    // themselves are shared by other states and stay as they are. No shipped
+    // mount reaches 01B8F8D3.
     constexpr uint32_t kNever = 0x447A0000;   // 1000.0f
-    // Each swap's offset in the lower chart the game has: the shipped file,
-    // or the one with Damiane's nodes (broomy.cpp).
-    uint32_t g_at[kSwapCount] = {};
+    // The swaps as found in the lower chart the game has.
+    Swap g_swaps[kSwapCount] = {};
     volatile uintptr_t g_lowerBase = 0;
     volatile uint32_t g_lowerSize = 0;
     volatile uintptr_t g_rideOnBase = 0;
@@ -128,11 +108,10 @@ namespace
         if (base && (g_swapped != 0) != on)
         {
             bool ok = true;
-            for (size_t i = 0; i < kSwapCount; ++i)
+            for (const Swap& w : g_swaps)
             {
-                const Swap& w = kSwaps[i];
-                uint32_t* at = reinterpret_cast<uint32_t*>(base + g_at[i]);
-                const uint32_t want = on ? w.broomy : w.shipped, was = on ? w.shipped : w.broomy;
+                uint32_t* at = reinterpret_cast<uint32_t*>(base + w.offset);
+                const uint32_t want = on ? w.now : w.shipped, was = on ? w.shipped : w.now;
                 if (*at == was) *at = want;
                 else if (*at != want) ok = false;
             }
@@ -162,14 +141,19 @@ namespace
     // RideOn charts are checked every frame from their first ride to the end
     // of the session, ridden or not (SpeederBike.log, 23 October 2026), so
     // Broomy's running said Broomy was ridden while Kliff rode the speeder,
-    // and Broomy's swap stayed in under him. Standing still, a mount's chart
-    // sits in the ground idle F5150415, whose branches are at +0xC0B4,
-    // +0xC5FC and +0xC630 of the Wyvern's chart both are built from; getting
-    // on or moving takes it through other actions, and in the logged run only
-    // the ridden mount's chart ever left its idle (11:23). So the mount whose
-    // chart last left its idle is the one he is on. SpeederBike.asi says where
-    // its chart is (SpeederBikeRideOnChart).
-    constexpr uint32_t kIdleBranches[] = { 0xC0B4, 0xC5FC, 0xC630 };
+    // and Broomy's swap stayed in under him. A mount Kliff is not on settles
+    // into a state and stays there; the one he rides changes state as he
+    // gets on, sets off, stops and boosts. So the mount whose chart last went
+    // into another state is the one he is on. A state change is a branch the
+    // game lets through (the check's error 0) to a state other than the one
+    // that chart last went to: a clip-end loop back into the same state is
+    // none, and neither is settling into the ground idle. Until 1.0.7 this
+    // counted every check outside the ground idle F5150415, but on 3392 the
+    // parked speeder rests in a flight state and
+    // checks its way back to the ground idle every frame, so both charts
+    // counted as moving and Broomy and the speeder each took Kliff in turn
+    // every frame: the speeder's engine ran on Broomy (Seth, 29 October).
+    // SpeederBike.asi says where its chart is (SpeederBikeRideOnChart).
     typedef int (*FnSpeederChart)(uintptr_t* base, uint32_t* size);
     FnSpeederChart g_speederChart = nullptr;
     volatile uintptr_t g_speederBase = 0;
@@ -177,13 +161,9 @@ namespace
     volatile LONG g_speederAsked = 0;
     volatile LONG g_broomMovedAt = 0, g_speederMovedAt = 0;
     volatile LONG g_onSpeederLogged = 0;
-
-    bool Idle(uint32_t off)
-    {
-        for (uint32_t b : kIdleBranches)
-            if (off == b) return true;
-        return false;
-    }
+    // The state each chart last went to: Broomy's, the speeder's.
+    volatile LONG g_state[2] = {};
+    constexpr uint32_t kGroundIdle = 0xF5150415;
 
     bool OnSpeeder()
     {
@@ -208,13 +188,14 @@ namespace
         uintptr_t b = 0;
         uint32_t n = 0;
         if (!g_speederChart(&b, &n) || b == g_speederBase) return;
+        InterlockedExchange(&g_state[1], 0);
         g_speederSize = n;
         g_speederBase = b;
         LOG("[rider] the speeder's riding chart is at %p (%u bytes), so Broomy knows when Kliff is on the speeder.",
             reinterpret_cast<void*>(b), n);
     }
 
-    // Notes each check of a mount's chart outside its ground idle.
+    // Notes each branch a mount's chart takes into another state.
     void Track(uintptr_t pre)
     {
         AskSpeeder(GetTickCount());
@@ -223,23 +204,29 @@ namespace
         if (In(pre, g_rideOnBase, g_rideOnSize)) chart = 0, base = g_rideOnBase;
         else if (In(pre, g_speederBase, g_speederSize)) chart = 1, base = g_speederBase;
         if (chart < 0) return;
-        const uint32_t off = static_cast<uint32_t>(pre - base);
-        if (Idle(off)) return;
+        uint32_t target = 0;
+        if (!bm::mem::Read32(pre + 0x14, &target) || !target) return;
+        if (static_cast<uint32_t>(InterlockedExchange(&g_state[chart], static_cast<LONG>(target))) == target) return;
+        // Settling into the ground idle is what a mount left alone does, so
+        // it says nothing about the rider.
+        if (target == kGroundIdle) return;
         InterlockedExchange(chart == 0 ? &g_broomMovedAt : &g_speederMovedAt, static_cast<LONG>(GetTickCount() | 1));
         const LONG on = OnSpeeder() ? 1 : 0;
         if (InterlockedExchange(&g_onSpeederLogged, on) != on)
-            LOG(on ? "[rider] the speeder's chart left its idle (+0x%X) after Broomy's last did, so Kliff is on the speeder."
-                   : "[rider] Broomy's chart left its idle (+0x%X) after the speeder's last did, so Kliff is on Broomy.",
-                off);
+            LOG(on ? "[rider] the speeder's chart went to %08X (+0x%X) after Broomy's last changed state, so Kliff is on "
+                     "the speeder."
+                   : "[rider] Broomy's chart went to %08X (+0x%X) after the speeder's last changed state, so Kliff is on "
+                     "Broomy.",
+                target, static_cast<uint32_t>(pre - base));
     }
 
     uint64_t CheckDetour(uintptr_t comp, uint32_t* err, uintptr_t layer, uintptr_t a4, uintptr_t a5, uintptr_t a6,
                          uintptr_t a7, uintptr_t a8, uintptr_t a9, uintptr_t a10, uintptr_t a11, uintptr_t a12)
     {
         uintptr_t pre = 0;
-        if (a8 && bm::mem::ReadPtr(a8, &pre))
+        const bool known = a8 && bm::mem::ReadPtr(a8, &pre);
+        if (known)
         {
-            Track(pre);
             const bool mine = In(pre, g_rideOnBase, g_rideOnSize);
             if (mine) InterlockedExchange(&g_rideOnAt, static_cast<LONG>(GetTickCount()));
             // Broomy's own chart and the speeder's are checked every frame;
@@ -255,6 +242,8 @@ namespace
             }
         }
         const uint64_t r = g_original(comp, err, layer, a4, a5, a6, a7, a8, a9, a10, a11, a12);
+        uint32_t passed = 1;
+        if (known && err && bm::mem::Read32(reinterpret_cast<uintptr_t>(err), &passed) && passed == 0) Track(pre);
         if (!g_log) return r;
         uintptr_t rec = 0;
         uint32_t code = 1, target = 0;
@@ -283,19 +272,12 @@ namespace
         return r;
     }
 
-    // Where a word of the shipped lower chart sits in the one with Damiane's
-    // nodes (damiane.h).
-    uint32_t Moved(uint32_t offset) { return bm::damiane::Moved(bm::damiane::kCharts[1], offset); }
-
-    // Whether the chart holds every swap's shipped word where the layout puts
-    // it; fills `at` with the offsets.
-    bool Fits(const uint8_t* data, uint32_t size, bool damiane, uint32_t* at)
+    // Whether every swap's word holds its shipped value, as a chart just read
+    // does.
+    bool Holds(const uint8_t* data, const Swap* swaps)
     {
-        for (size_t i = 0; i < kSwapCount; ++i)
-        {
-            at[i] = damiane ? Moved(kSwaps[i].offset) : kSwaps[i].offset;
-            if (at[i] + 4 > size || *reinterpret_cast<const uint32_t*>(data + at[i]) != kSwaps[i].shipped) return false;
-        }
+        for (int i = 0; i < kSwapCount; ++i)
+            if (*reinterpret_cast<const uint32_t*>(data + swaps[i].offset) != swaps[i].shipped) return false;
         return true;
     }
 
@@ -306,42 +288,35 @@ namespace
         if (!strstr(path, "ride") && !strstr(path, "riding")) return;
         if (g_log) LOG("[state] chart %s at %p (%u bytes)", path, data, size);
         if (!strstr(path, "/ride_test3_lower.paac")) return;
-        static_assert(sizeof bm::damiane::kCharts / sizeof bm::damiane::kCharts[0] == 2, "kCharts[1] is the lower chart");
-        uint32_t at[kSwapCount];
-        const bool shipped = Fits(data, size, false, at);
-        const bool damiane = !shipped && Fits(data, size, true, at);
-        const bool known = shipped || damiane;
+        bm::riderfind::Lower f;
+        const char* why = "";
+        const bool known = bm::riderfind::FindLower(data, size, f, why) && Holds(data, f.swaps);
         AcquireSRWLockExclusive(&g_swapLock);
         g_lowerBase = known ? reinterpret_cast<uintptr_t>(data) : 0;
         g_lowerSize = size;
-        if (known) memcpy(g_at, at, sizeof at);
+        if (known) memcpy(g_swaps, f.swaps, sizeof g_swaps);
         InterlockedExchange(&g_swapped, 0);
         ReleaseSRWLockExclusive(&g_swapLock);
-        if (!known) LOG_ERR("[rider] ride_test3_lower.paac is not the shipped file, so Kliff keeps the dragon pose.");
-        const uint32_t pushOffAt = damiane ? Moved(kPushOffAt) : kPushOffAt;
-        // The push-off's own name. FDA30B13 plays the clip at string 193;
-        // the chart hashes its paths as it parses, which is after this read,
-        // so the name is written here, padded with zeros inside the old
+        if (!known)
+        {
+            LOG_ERR("[rider] ride_test3_lower.paac (%u bytes) is not a chart this knows (%s), so Kliff keeps the dragon "
+                    "pose.", size, *why ? why : "a word to swap holds another value");
+            return;
+        }
+        LOG("[rider] Kliff's lower chart (%u bytes): the dispatchers' default branches are %u and %u, the takeoff's slot "
+            "%u moves to branch %u, its loop slot %u to branch %u.",
+            size, f.ground, f.air, f.takeoffSlot, f.loop, f.loopSlot, f.exit);
+        // The push-off's own name. FDA30B13 plays the clip at that path; the
+        // chart hashes its paths as it parses, which is after this read, so
+        // the name is written here, padded with zeros inside the old
         // string's room as broomchart.cpp does. Nothing reaches FDA30B13
         // unless Broomy is ridden, so it keeps the new name throughout.
-        if (known && pushOffAt + sizeof kPushOffOld <= size &&
-            memcmp(data + pushOffAt, kPushOffOld, sizeof kPushOffOld) == 0)
-        {
-            uint8_t* name = const_cast<uint8_t*>(data) + pushOffAt;
-            memset(name, 0, sizeof kPushOffOld);
-            memcpy(name, kPushOffNew, sizeof kPushOffNew - 1);
-            LOG("[rider] Kliff's push-off plays as %s%s.", kPushOffNew,
-                damiane ? ", in the lower chart with Damiane's nodes" : "");
-        }
-        const uint32_t ikAt = damiane ? Moved(kIkAt) : kIkAt;
-        if (known && ikAt + sizeof kIkWords <= size && memcmp(data + ikAt, kIkWords, sizeof kIkWords) == 0)
-        {
-            memcpy(const_cast<uint8_t*>(data) + ikAt, &kNever, 4);
-            LOG("[rider] 01B8F8D3's left hand IK event stays off%s.",
-                damiane ? ", in the lower chart with Damiane's nodes" : "");
-        }
-        else if (known)
-            LOG_ERR("[rider] 01B8F8D3's hand IK event is not where it should be, so Kliff's left hand may go to his belt.");
+        uint8_t* name = const_cast<uint8_t*>(data) + f.pushOff;
+        memset(name, 0, sizeof kPushOffOld);
+        memcpy(name, kPushOffNew, sizeof kPushOffNew - 1);
+        LOG("[rider] Kliff's push-off plays as %s.", kPushOffNew);
+        for (int i = 0; i < f.ikCount; ++i) memcpy(const_cast<uint8_t*>(data) + f.ik[i], &kNever, 4);
+        LOG("[rider] 01B8F8D3's left hand IK stays off (%d event%s).", f.ikCount, f.ikCount == 1 ? "" : "s");
     }
 }
 
@@ -350,6 +325,7 @@ namespace bm::riderfix
     void NoteServed(const char* path, uintptr_t base, uint32_t size)
     {
         if (!strstr(path, "m0002_armadillo.paac")) return;
+        InterlockedExchange(&g_state[0], 0);
         g_rideOnSize = size;
         g_rideOnBase = base;
     }

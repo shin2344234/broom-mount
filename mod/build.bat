@@ -5,6 +5,8 @@ rem   build.bat clean    wipe build\ first
 rem   build.bat check IN OUT   build and run the offline check of Broomy's
 rem                      builders (tests\buildcheck.cpp says what IN and OUT hold)
 rem   build.bat chartcheck IN OUT   the same for Broomy's charts (tests\chartcheck.cpp)
+rem   build.bat riderfind CHARTS SPLICED   riderfix's search for Kliff's chart words,
+rem                      against riderfix_offsets.py (tests\riderfind.cpp)
 rem Call it by full quoted path from PowerShell; the space in the repo path
 rem breaks a bare `cmd /c build.bat`.
 setlocal
@@ -25,20 +27,23 @@ if not exist "%HERE%build\build.ninja" (
   "%CMAKE%" -S "%HERE%." -B "%HERE%build" -G Ninja -DCMAKE_MAKE_PROGRAM="%NINJA%" -DCMAKE_BUILD_TYPE=Release
   if errorlevel 1 exit /b 1
 )
-if "%1"=="check" (
-  "%CMAKE%" --build "%HERE%build" --target buildcheck
-  if errorlevel 1 exit /b 1
-  "%HERE%build\buildcheck.exe" %2 %3
-  exit /b
-)
-if "%1"=="chartcheck" (
-  "%CMAKE%" --build "%HERE%build" --target chartcheck
-  if errorlevel 1 exit /b 1
-  "%HERE%build\chartcheck.exe" %2 %3
-  exit /b
-)
+set "CHECK="
+if "%1"=="check" set "CHECK=buildcheck"
+if "%1"=="chartcheck" set "CHECK=chartcheck"
+if "%1"=="riderfind" set "CHECK=riderfind"
+if defined CHECK goto check
 "%CMAKE%" --build "%HERE%build"
 if errorlevel 1 exit /b 1
 echo.
 echo staged in "%HERE%dist"
 endlocal
+exit /b 0
+
+rem The offline checks. Their exit code goes out with an explicit
+rem `exit /b %errorlevel%` outside any block: a bare `exit /b`, or one inside
+rem parentheses, hands PowerShell's `cmd /c` a 0 whatever the check returned.
+:check
+"%CMAKE%" --build "%HERE%build" --target %CHECK%
+if errorlevel 1 exit /b 1
+"%HERE%build\%CHECK%.exe" %2 %3
+exit /b %errorlevel%
